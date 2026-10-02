@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { forceOpen } from './api.js';
+import { isTyping } from './ui.js';
 import { TitleScene } from './scenes/TitleScene.js';
 import { TowerScene } from './scenes/TowerScene.js';
 import { ArenaScene } from './scenes/ArenaScene.js';
@@ -41,4 +42,26 @@ Promise.all([
   document.fonts.load('16px "Jersey 10"'),
 ])
   .catch(() => {})
-  .then(() => new Phaser.Game(config));
+  .then(() => {
+    const game = new Phaser.Game(config);
+    let resizeFrame = 0;
+    const resizeGame = () => {
+      // Opening the phone keyboard must not resize (and so restart) the screen you're typing on.
+      if (isTyping()) return;
+      if (resizeFrame) cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = 0;
+        const parent = game.canvas.parentElement;
+        const { width, height } = parent.getBoundingClientRect();
+        const nextWidth = Math.round(width);
+        const nextHeight = Math.round(height);
+        if (nextWidth > 0 && nextHeight > 0 && (nextWidth !== game.scale.width || nextHeight !== game.scale.height)) {
+          game.scale.resize(nextWidth, nextHeight);
+        }
+      });
+    };
+    window.addEventListener('resize', resizeGame, { passive: true });
+    // When typing ends (keyboard closes), catch up with any rotation that happened meanwhile.
+    document.addEventListener('focusout', () => setTimeout(resizeGame, 300));
+    resizeGame();
+  });

@@ -2,13 +2,29 @@
 // Checks the answer here on the server. If it's right, opens the door and raises highestFloor.
 // Returns { ok, message?, doorsOpened, highestFloor }.
 import { FieldValue } from 'firebase-admin/firestore';
-import { CHECKS } from './_lib/doors.js';
+import { CHECKS, REVEALS } from './_lib/doors.js';
 import { players } from './_lib/firebase.js';
 import { allow, isPlayerId, route } from './_lib/http.js';
 
 export default route(async (req, res) => {
   if (!allow(req, res, 'POST')) return;
-  const { id, door, answer } = req.body ?? {};
+  const { id, door, answer, reveal } = req.body ?? {};
+
+  // Looking back at a door you already opened: show its answer and why.
+  if (reveal === true) {
+    if (!isPlayerId(id) || !REVEALS[door]) {
+      res.status(400).json({ ok: false, message: 'Unknown door.' });
+      return;
+    }
+    const snap = await players().doc(id).get();
+    if (!snap.exists || !(snap.data().doorsOpened ?? []).includes(door)) {
+      res.status(403).json({ ok: false, message: 'Open this door first!' });
+      return;
+    }
+    res.status(200).json({ ok: true, ...REVEALS[door] });
+    return;
+  }
+
   if (!isPlayerId(id) || !CHECKS[door] || typeof answer !== 'string' || answer.length > 300) {
     res.status(400).json({ ok: false, message: 'Type an answer for this door.' });
     return;

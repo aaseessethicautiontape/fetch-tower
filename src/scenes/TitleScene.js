@@ -6,7 +6,7 @@ import { getPokemon } from '../data/pokeapi.js';
 import { TYPE_COLORS } from '../data/types.js';
 import { loadImages, resizedTexture } from '../sprites.js';
 import { state, setPlayer } from '../state.js';
-import { CSS, IS_TOUCH, PALETTE, body, drawSticker, goTo, heading, label, makeButton, sparkle, woodSign, wipeIn } from '../ui.js';
+import { CSS, PALETTE, body, drawSticker, goTo, heading, label, makeButton, restartOnResize, sparkle, woodSign, wipeIn } from '../ui.js';
 
 const CARD_W = 168;
 const CARD_H = 204;
@@ -33,19 +33,19 @@ export class TitleScene extends Phaser.Scene {
     const cx = width / 2;
     const compact = width < 800 || height < 560;
     const stackedCards = width < 520;
-    const titleY = height * 0.1125;
-    const badgeY = height * 0.21875;
-    const nicknameY = stackedCards ? height * 0.30 : compact ? height * 0.36 : height * 0.409;
-    const playY = Math.min(height - 48, height * 0.925);
+    // Short and wide (phones sideways): two columns. Title, name and PLAY on the left; starters 2x2 on the right.
+    const twoColumn = !stackedCards && height < 560 && width >= height * 1.4;
+    const leftX = twoColumn ? Math.round(width * 0.27) : cx;
+    const leftW = twoColumn ? Math.round(width * 0.5) - 24 : width;
+    const titleY = twoColumn ? Math.round(height * 0.13) : height * 0.1125;
+    const badgeY = twoColumn ? titleY + 42 : height * 0.21875;
+    const nicknameY = twoColumn ? badgeY + 68 : stackedCards ? height * 0.30 : compact ? height * 0.36 : height * 0.409;
+    const playY = twoColumn ? height - 44 : Math.min(height - 48, height * 0.925);
     const layoutY = (designY) => (designY * height) / 640;
     this.layoutY = layoutY;
     this.selected = this.startingStarter ?? state.starter;
     this.cards = new Map();
-    this.handleResize = () => {
-      this.scene.restart({ nickname: this.nicknameInput?.value ?? state.nickname, starter: this.selected });
-    };
-    this.scale.on('resize', this.handleResize);
-    this.events.once('shutdown', () => this.scale.off('resize', this.handleResize));
+    restartOnResize(this, () => ({ nickname: this.nicknameInput?.value ?? state.nickname, starter: this.selected }));
 
     // Sky, clouds and birds behind everything.
     addSky(this);
@@ -53,13 +53,14 @@ export class TitleScene extends Phaser.Scene {
     addBirds(this, { count: 3, minY: layoutY(60), maxY: layoutY(190) });
 
     // The tower, flags waving on top.
-    const towerTop = layoutY(206);
-    this.add.image(cx, towerTop, 'tower').setOrigin(0.5, 0).setScale(3).setDepth(-60);
+    const towerTop = twoColumn ? badgeY + 30 : layoutY(206);
+    const towerX = twoColumn ? leftX : cx;
+    this.add.image(towerX, towerTop, 'tower').setOrigin(0.5, 0).setScale(3).setDepth(-60);
     [[-66, 'coral', 0], [0, 'yellow', 0], [66, 'cyan', 0]].forEach(([dx, colour, lift]) => {
       const poleBottom = towerTop + 6 - lift;
       const poleTop = poleBottom - 48;
-      this.add.image(cx + dx, poleBottom, 'pole').setOrigin(0.5, 1).setScale(3).setDepth(-61);
-      this.add.sprite(cx + dx + 3, poleTop + 3, `flag-${colour}-0`).setOrigin(0, 0).setScale(3).setDepth(-61).play(`flag-${colour}`);
+      this.add.image(towerX + dx, poleBottom, 'pole').setOrigin(0.5, 1).setScale(3).setDepth(-61);
+      this.add.sprite(towerX + dx + 3, poleTop + 3, `flag-${colour}-0`).setOrigin(0, 0).setScale(3).setDepth(-61).play(`flag-${colour}`);
     });
 
     // Rolling hills and swaying flowers.
@@ -72,18 +73,31 @@ export class TitleScene extends Phaser.Scene {
     addFlowers(this, spots, { depth: -40 });
 
     // Big bouncing title.
-    const titleSize = compact ? 34 : 54;
-    const title = this.add.text(cx, titleY, 'FETCH TOWER', heading(titleSize)).setOrigin(0.5).setDepth(10);
+    const titleSize = twoColumn ? Math.min(32, Math.floor((leftW - 20) / 11.5)) : compact ? 34 : 54;
+    const title = this.add.text(leftX, titleY, 'FETCH TOWER', heading(titleSize)).setOrigin(0.5).setDepth(10);
     this.tweens.add({ targets: title, y: titleY - (compact ? 6 : 10), duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
-    const badge = this.add.graphics({ x: cx, y: badgeY }).setDepth(10);
+    const badge = this.add.graphics({ x: leftX, y: badgeY }).setDepth(10);
     drawSticker(badge, 236, 34, { fill: PALETTE.coral, radius: 17, shadow: 4, stroke: 3 });
-    this.add.text(cx, badgeY + 1, 'WEEK 2 · CATCH & CLIMB', body(18, CSS.white)).setOrigin(0.5).setDepth(10);
+    this.add.text(leftX, badgeY + 1, 'WEEK 2 · CATCH & CLIMB', body(18, CSS.white)).setOrigin(0.5).setDepth(10);
 
-    this.createNicknameSign(cx, nicknameY, Math.min(400, width - 32));
+    this.createNicknameSign(leftX, nicknameY, Math.min(400, leftW - 16));
 
-    const playWidth = Math.min(320, width - 32);
+    const playWidth = Math.min(320, leftW - 32);
     const button = { width: playWidth, height: 64, size: compact ? 16 : 20 };
-    if (stackedCards) {
+    if (twoColumn) {
+      const colLeft = width * 0.54;
+      const colW = width - colLeft - 16;
+      const gap = 14;
+      const cardScale = Math.min(0.9, (colW - gap) / (CARD_W * 2), (height - 60 - gap) / (CARD_H * 2));
+      const stepX = CARD_W * cardScale + gap;
+      const stepY = CARD_H * cardScale + gap;
+      const colX = colLeft + colW / 2;
+      STARTERS.forEach((starter, i) => {
+        const x = colX + ((i % 2) - 0.5) * stepX;
+        const y = height / 2 + (Math.floor(i / 2) - 0.5) * stepY + 12;
+        this.cards.set(starter.id, this.createCard(x, y, starter, i, cardScale));
+      });
+    } else if (stackedCards) {
       const cardScale = Math.min(
         0.82,
         (width - 40) / (CARD_W * 2 + CARD_GAP),
@@ -113,7 +127,7 @@ export class TitleScene extends Phaser.Scene {
       });
     }
 
-    this.playButton = makeButton(this, cx, playY, 'PLAY!', () => this.play(), button);
+    this.playButton = makeButton(this, leftX, playY, 'PLAY!', () => this.play(), button);
 
     // Sparkles keep popping around the selected card.
     this.time.addEvent({
@@ -258,14 +272,6 @@ export class TitleScene extends Phaser.Scene {
     if (!nickname || this.selected == null) return;
 
     setPlayer(nickname, this.selected);
-    // On phones, go fullscreen and hold landscape where the browser allows it (Android; iOS ignores this).
-    if (IS_TOUCH && !this.scale.isFullscreen) {
-      try {
-        this.scale.startFullscreen();
-      } catch {
-        // not supported: the game still fits the screen
-      }
-    }
     syncProgress(); // ask the server where this player is; the tower map waits for it
     goTo(this, 'TowerScene');
   }

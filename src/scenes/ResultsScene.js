@@ -5,7 +5,7 @@ import { BALANCE } from '../data/balance.js';
 import { FLOORS } from '../data/floors.js';
 import { sfx } from '../sfx.js';
 import { session } from '../state.js';
-import { CSS, PALETTE, body, confetti, drawSticker, goTo, heading, label, makeButton, sparkle, wipeIn } from '../ui.js';
+import { CSS, PALETTE, body, confetti, drawSticker, goTo, heading, label, makeButton, restartOnResize, sparkle, wipeIn } from '../ui.js';
 
 export class ResultsScene extends Phaser.Scene {
   constructor() {
@@ -14,6 +14,12 @@ export class ResultsScene extends Phaser.Scene {
 
   create(data) {
     makeArt(this);
+    this.resultData = {
+      floor: data?.floor ?? 1,
+      timeSurvived: data?.timeSurvived ?? 0,
+      defeated: data?.defeated ?? 0,
+      caught: data?.caught ?? 0,
+    };
     const { width, height } = this.scale;
     const cx = width / 2;
     const layoutY = (designY) => (designY * height) / 640;
@@ -33,7 +39,7 @@ export class ResultsScene extends Phaser.Scene {
     const score = timeSurvived * s.perSecond + defeated * s.perDefeat + caught * s.perCatch;
 
     session.clearedFloors.add(floorNum);
-    api.score(caught, score); // the server keeps the totals; failures are fine here
+    if (!data?.scoreSent) api.score(caught, score); // the server keeps the totals; failures are fine here
 
     addMeadow(this, { hillsHeight: 150, flowers: 12, birds: 2 });
 
@@ -128,6 +134,7 @@ export class ResultsScene extends Phaser.Scene {
       b.setDepth(5).setAlpha(0).setY(b.y + 30);
     });
 
+    restartOnResize(this, () => ({ ...this.resultData, scoreSent: true }));
     wipeIn(this);
   }
 }

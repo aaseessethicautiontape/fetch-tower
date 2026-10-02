@@ -26,6 +26,7 @@ async function request(path, body) {
 export const api = {
   player: () => request('/api/player', { id: state.id, nickname: state.nickname, starter: state.starter }),
   door: (door, answer) => request('/api/door', { id: state.id, door, answer }),
+  reveal: (door) => request('/api/door', { id: state.id, door, reveal: true }),
   score: (catches, score) => request('/api/score', { id: state.id, catches, score }),
   leaderboard: () => request('/api/leaderboard'),
 };

@@ -27,3 +27,4 @@ fetch-tower-firebase-adminsdk-fbsvc-c6f37636a2.json
 .vercel
 firebase-debug.log
 .env*
+!.env.example

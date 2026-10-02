@@ -61,10 +61,8 @@ export class ArenaScene extends Phaser.Scene {
     const portrait = height > width;
     this.compact = portrait || width < 700;
     this.spriteScales = this.compact ? COMPACT_SCALES : DESKTOP_SCALES;
-    const topInset = portrait ? 150 : 92;
-    const bottomInset = portrait ? 138 : 124;
-    // Reserve room for the stacked HUD and bottom touch controls on portrait screens.
-    this.arena = { x: 24, y: topInset, w: Math.max(1, width - 48), h: Math.max(1, height - topInset - bottomInset) };
+    this.setArenaBounds(width, height);
+    this.arenaDecorations = [];
     this.drawArena();
     this.loading = this.add.container(width / 2, height / 2).setDepth(DEPTH.overlay);
     const ball = this.add.image(0, -40, 'ball').setScale(4);
@@ -72,6 +70,70 @@ export class ArenaScene extends Phaser.Scene {
     this.loading.add([ball, this.add.text(0, 30, `LOADING ${this.floor.label.toUpperCase()}...`, heading(18)).setOrigin(0.5)]);
     wipeIn(this);
     this.loadPokemon();
+    this.resizeHandler = () => {
+      this.resizeEvent?.remove();
+      this.resizeEvent = this.time.delayedCall(100, () => this.resizeViewport());
+    };
+    this.scale.on('resize', this.resizeHandler);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off('resize', this.resizeHandler);
+      this.resizeEvent?.remove();
+    });
+  }
+
+  setArenaBounds(width, height) {
+    const portrait = height > width;
+    const topInset = portrait ? 150 : 92;
+    const bottomInset = portrait ? 138 : 124;
+    this.arena = { x: 24, y: topInset, w: Math.max(1, width - 48), h: Math.max(1, height - topInset - bottomInset) };
+  }
+
+  resizeViewport() {
+    if (!this.sys.isActive()) return;
+    const { width, height } = this.scale;
+    const portrait = height > width;
+    this.compact = portrait || width < 700;
+    this.spriteScales = this.compact ? COMPACT_SCALES : DESKTOP_SCALES;
+    this.setArenaBounds(width, height);
+
+    this.arenaGround?.destroy();
+    this.arenaDecorations.forEach((decoration) => decoration.destroy());
+    this.arenaDecorations = [];
+    this.drawArena();
+    this.physics.world.setBounds(this.arena.x, this.arena.y, this.arena.w, this.arena.h);
+
+    if (this.player) {
+      this.player.setScale(this.spriteScales.player);
+      this.player.body.setSize(8, 10).setOffset(3, 5);
+      this.player.setPosition(
+        Phaser.Math.Clamp(this.player.x, this.arena.x + 8, this.arena.x + this.arena.w - 8),
+        Phaser.Math.Clamp(this.player.y, this.arena.y + 10, this.arena.y + this.arena.h - 10),
+      );
+      this.player.shadow?.setScale(this.compact ? 2 : 3);
+      this.team?.forEach((member) => {
+        member.img.setScale(this.spriteScales.team);
+        member.img.shadow?.setScale(2);
+      });
+      this.wilds?.getChildren().forEach((wild) => {
+        const scale = wild.isBoss ? this.spriteScales.boss : this.spriteScales.wild;
+        wild.baseScale = scale;
+        wild.setScale(scale);
+        wild.body.setSize(wild.width * 0.75, wild.height * 0.75, true);
+        wild.setPosition(
+          Phaser.Math.Clamp(wild.x, this.arena.x + 8, this.arena.x + this.arena.w - 8),
+          Phaser.Math.Clamp(wild.y, this.arena.y + 10, this.arena.y + this.arena.h - 10),
+        );
+        wild.shadow?.setScale(this.compact ? (wild.isBoss ? 4 : 2) : wild.isBoss ? 6 : 3);
+      });
+    } else if (this.loading) {
+      this.loading.setPosition(width / 2, height / 2);
+    }
+
+    if (this.timerPanel) {
+      this.layoutHud();
+      this.hudKey = '';
+      if (this.player) this.updateHud(0);
+    }
   }
 
   // ---------- Loading ----------
@@ -117,6 +179,7 @@ export class ArenaScene extends Phaser.Scene {
     const { width, height } = this.scale;
     const rand = seeded(this.floorNum * 7919);
     const rt = this.add.renderTexture(0, 0, width, height).setOrigin(0).setDepth(DEPTH.ground);
+    this.arenaGround = rt;
     for (let y = 0; y < height; y += 32) {
       for (let x = 0; x < width; x += 32) {
         const r = rand();
@@ -142,6 +205,7 @@ export class ArenaScene extends Phaser.Scene {
       const key = (i + Math.floor(rand() * 3)) % 3 === 0 ? 'rock' : 'bush';
       const deco = this.add.image(x, y, key).setScale(3).setOrigin(0.5, 0.8);
       deco.setDepth(y);
+      this.arenaDecorations.push(deco);
     });
   }
 
@@ -239,15 +303,16 @@ export class ArenaScene extends Phaser.Scene {
     this.hpText = this.add.text(0, 6, '', body(16, CSS.muted)).setOrigin(1, 0);
     this.dashLabel = this.add.text(64 + 128, 54, IS_TOUCH ? 'DASH' : 'SPACE', label(7, CSS.muted)).setOrigin(0, 0.5);
     const hudScale = compact ? Math.min(0.85, Math.max(0.65, width / 520)) : 1;
-    this.hud.add([this.hpText, this.dashLabel]).setScale(hudScale);
+    this.hudStats = this.add.container(0, 0, [this.hpText, this.dashLabel]).setScale(hudScale);
+    this.hud.add(this.hudStats);
     this.hearts = [];
     this.displayHp = this.hp;
     this.hudKey = '';
 
     // The timer moves to a second row on portrait screens.
     const timerY = width < 480 ? 124 : compact ? 108 : 42;
-    const timerPanel = this.add.graphics({ x: width / 2, y: timerY }).setDepth(DEPTH.hud);
-    drawSticker(timerPanel, compact ? 132 : 150, compact ? 48 : 60, { radius: 14 });
+    this.timerPanel = this.add.graphics({ x: width / 2, y: timerY }).setDepth(DEPTH.hud);
+    drawSticker(this.timerPanel, compact ? 132 : 150, compact ? 48 : 60, { radius: 14 });
     this.timerText = this.add.text(width / 2, timerY + 2, '', label(compact ? 20 : 26)).setOrigin(0.5).setDepth(DEPTH.hud);
 
     // Top-right: floor badge, separated from the timer in portrait.
@@ -255,12 +320,9 @@ export class ArenaScene extends Phaser.Scene {
     const badgeWidth = compact ? 146 : 168;
     const badgeX = width - badgeWidth / 2 - 10;
     const badgeY = width < 480 ? 68 : 40;
-    const badge = this.add.graphics({ x: badgeX, y: badgeY }).setDepth(DEPTH.hud);
-    drawSticker(badge, badgeWidth, compact ? 44 : 50, { fill: boss ? PALETTE.coral : PALETTE.yellow, radius: 25 });
-    this.add
-      .text(badgeX, badgeY + 1, boss ? 'BOSS!' : this.floor.label.toUpperCase(), label(compact ? 12 : 14, boss ? CSS.white : CSS.navy))
-      .setOrigin(0.5)
-      .setDepth(DEPTH.hud);
+    this.floorBadge = this.add.graphics({ x: badgeX, y: badgeY }).setDepth(DEPTH.hud);
+    drawSticker(this.floorBadge, badgeWidth, compact ? 44 : 50, { fill: boss ? PALETTE.coral : PALETTE.yellow, radius: 25 });
+    this.floorText = this.add.text(badgeX, badgeY + 1, boss ? 'BOSS!' : this.floor.label.toUpperCase(), label(compact ? 12 : 14, boss ? CSS.white : CSS.navy)).setOrigin(0.5).setDepth(DEPTH.hud);
 
     // Catch prompt, pulsing above the squad slots.
     const promptText = this.add.text(0, 1, IS_TOUCH ? 'TAP CATCH!' : 'PRESS C TO CATCH!', label(12)).setOrigin(0.5);
@@ -270,8 +332,33 @@ export class ArenaScene extends Phaser.Scene {
     this.tweens.add({ targets: this.catchPrompt, scale: 1.08, duration: 380, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
 
     this.squadSlots = this.add.container(0, 0).setDepth(DEPTH.hud);
+    this.layoutHud();
     this.refreshSquadSlots();
     this.updateHud(0);
+  }
+
+  layoutHud() {
+    const { width, height } = this.scale;
+    const compact = height > width || width < 700;
+    const timerY = width < 480 ? 124 : compact ? 108 : 42;
+    const badgeWidth = compact ? 146 : 168;
+    const badgeX = width - badgeWidth / 2 - 10;
+    const badgeY = width < 480 ? 68 : 40;
+
+    this.timerPanel.setPosition(width / 2, timerY);
+    this.timerPanel.clear();
+    drawSticker(this.timerPanel, compact ? 132 : 150, compact ? 48 : 60, { radius: 14 });
+    this.timerText.setPosition(width / 2, timerY + 2).setFontSize(compact ? 20 : 26);
+    this.floorBadge.setPosition(badgeX, badgeY);
+    this.floorBadge.clear();
+    const boss = !!this.floor.boss;
+    drawSticker(this.floorBadge, badgeWidth, compact ? 44 : 50, { fill: boss ? PALETTE.coral : PALETTE.yellow, radius: 25 });
+    this.floorText.setPosition(badgeX, badgeY + 1);
+    this.floorText.setFontSize(compact ? 12 : 14);
+    this.catchPrompt.setPosition(width / 2, height - (compact ? 154 : 122));
+    this.hudStats.setScale(compact ? Math.min(0.85, Math.max(0.65, width / 520)) : 1);
+    if (this.squadSlots && this.team) this.refreshSquadSlots();
+    if (this.stickBase) this.layoutTouchControls();
   }
 
   // Redraw the top-left panel when max HP or lives change (the bar grows with max HP).
@@ -328,12 +415,11 @@ export class ArenaScene extends Phaser.Scene {
   createTouchControls() {
     const { width, height } = this.scale;
     const compact = this.compact;
-    const radius = compact ? 30 : 60;
-    this.stickBase = this.add.circle(0, 0, radius, PALETTE.white, 0.3).setStrokeStyle(5, PALETTE.navy, 0.7).setDepth(DEPTH.hud).setVisible(false);
-    this.stickKnob = this.add.circle(0, 0, compact ? 16 : 28, PALETTE.white, 0.95).setStrokeStyle(5, PALETTE.navy).setDepth(DEPTH.hud).setVisible(false);
+    this.touchControlsCompact = compact;
+    this.createJoystick();
 
     this.input.on('pointerdown', (pointer, over) => {
-      if (over.length || this.stick.id !== null || pointer.x > width * 0.62 || this.phase !== 'fight') return;
+      if (over.length || this.stick.id !== null || pointer.x > this.scale.width * 0.62 || this.phase !== 'fight') return;
       this.stick.id = pointer.id;
       this.stickBase.setPosition(pointer.x, pointer.y).setVisible(true);
       this.stickKnob.setPosition(pointer.x, pointer.y).setVisible(true);
@@ -341,10 +427,10 @@ export class ArenaScene extends Phaser.Scene {
     this.input.on('pointermove', (pointer) => {
       if (pointer.id !== this.stick.id) return;
       const v = new Phaser.Math.Vector2(pointer.x - this.stickBase.x, pointer.y - this.stickBase.y);
-      const len = Math.min(v.length(), radius);
+      const len = Math.min(v.length(), this.stickRadius);
       v.normalize();
       this.stickKnob.setPosition(this.stickBase.x + v.x * len, this.stickBase.y + v.y * len);
-      this.stick.vec.copy(v).scale(len / radius);
+      this.stick.vec.copy(v).scale(len / this.stickRadius);
     });
     const release = (pointer) => {
       if (pointer.id !== this.stick.id) return;
@@ -356,13 +442,52 @@ export class ArenaScene extends Phaser.Scene {
     this.input.on('pointerup', release);
     this.input.on('pointerupoutside', release);
 
-    if (compact) {
-      this.touchButton(width - 42, height - 126, 28, PALETTE.cyan, 'DASH', () => this.dash());
-      this.catchButton = this.touchButton(width - 42, height - 46, 30, PALETTE.yellow, 'CATCH', () => this.throwBall());
-    } else {
-      this.touchButton(width - 172, height - 62, 42, PALETTE.cyan, 'DASH', () => this.dash());
-      this.catchButton = this.touchButton(width - 72, height - 104, 54, PALETTE.yellow, 'CATCH', () => this.throwBall());
-    }
+    this.createTouchButtons();
+  }
+
+  // Sizes follow the screen: a quarter-ish of the short side, so thumbs can hit them on any phone or tablet.
+  // CATCH is the biggest button, DASH is about three quarters of it.
+  touchSizes() {
+    const short = Math.min(this.scale.width, this.scale.height);
+    const catchR = Phaser.Math.Clamp(Math.round(short * 0.15), 46, 86);
+    return {
+      catchR,
+      dashR: Math.round(catchR * 0.74),
+      stickR: Phaser.Math.Clamp(Math.round(short * 0.14), 44, 82),
+      margin: Phaser.Math.Clamp(Math.round(short * 0.04), 12, 28),
+    };
+  }
+
+  createJoystick() {
+    const { stickR } = this.touchSizes();
+    this.stickRadius = stickR;
+    this.stickBase = this.add.circle(0, 0, stickR, PALETTE.white, 0.3).setStrokeStyle(5, PALETTE.navy, 0.7).setDepth(DEPTH.hud).setVisible(false);
+    this.stickKnob = this.add.circle(0, 0, Math.round(stickR * 0.46), PALETTE.white, 0.95).setStrokeStyle(5, PALETTE.navy).setDepth(DEPTH.hud).setVisible(false);
+  }
+
+  createTouchButtons() {
+    const { width, height } = this.scale;
+    const { catchR, dashR, margin } = this.touchSizes();
+    // CATCH sits in the bottom-right corner; DASH sits up and to the left of it, along the thumb's arc.
+    const cx = width - margin - catchR;
+    const cy = height - margin - catchR;
+    const angle = Phaser.Math.DegToRad(205);
+    const gap = catchR + dashR + 14;
+    this.catchButton = this.touchButton(cx, cy, catchR, PALETTE.yellow, 'CATCH', () => this.throwBall());
+    this.dashButton = this.touchButton(cx + Math.cos(angle) * gap, cy + Math.sin(angle) * gap, dashR, PALETTE.cyan, 'DASH', () => this.dash());
+  }
+
+  // Rebuild the joystick and buttons at the new screen size.
+  layoutTouchControls() {
+    this.stickBase?.destroy();
+    this.stickKnob?.destroy();
+    this.dashButton?.destroy();
+    this.catchButton?.destroy();
+    this.stick.id = null;
+    this.stick.vec.set(0, 0);
+    this.touchControlsCompact = this.compact;
+    this.createJoystick();
+    this.createTouchButtons();
   }
 
   touchButton(x, y, r, colour, text, action) {
@@ -371,8 +496,9 @@ export class ArenaScene extends Phaser.Scene {
     g.fillStyle(colour, 1).fillCircle(0, 0, r);
     g.fillStyle(lighten(colour, 0.2), 1).fillCircle(-r * 0.3, -r * 0.35, r * 0.28);
     g.lineStyle(5, PALETTE.navy, 1).strokeCircle(0, 0, r);
-    const button = this.add.container(x, y, [g, this.add.text(0, 2, text, label(r > 50 ? 12 : 11)).setOrigin(0.5)]).setDepth(DEPTH.hud);
-    button.setSize(r * 2, r * 2).setInteractive(new Phaser.Geom.Circle(r, r, r + 8), Phaser.Geom.Circle.Contains);
+    const size = Phaser.Math.Clamp(Math.round(r * 0.27), 10, 20);
+    const button = this.add.container(x, y, [g, this.add.text(0, 2, text, label(size)).setOrigin(0.5)]).setDepth(DEPTH.hud);
+    button.setSize(r * 2, r * 2).setInteractive(new Phaser.Geom.Circle(r, r, r + 10), Phaser.Geom.Circle.Contains);
     button.on('pointerdown', () => {
       this.tweens.add({ targets: button, scale: 0.88, duration: 60, yoyo: true });
       action();
@@ -901,7 +1027,7 @@ export class ArenaScene extends Phaser.Scene {
   updateHud(delta) {
     // The bar is longer when max HP is boosted, and drains smoothly toward the real value.
     this.displayHp += (this.hp - this.displayHp) * Math.min(1, delta / 140);
-    const maxBarWidth = this.compact ? Math.max(96, this.scale.width * 0.42) : Infinity;
+    const maxBarWidth = this.compact ? Math.max(64, this.scale.width - 270) : Infinity;
     const barW = Math.round(Math.min(maxBarWidth, (HP_BAR_BASE * this.maxHp) / this.baseMaxHp));
     const key = `${barW}:${this.lives}`;
     if (key !== this.hudKey) {

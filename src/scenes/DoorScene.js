@@ -4,7 +4,7 @@ import { api } from '../api.js';
 import { DOORS, HINT_UNLOCK_MS, WRONG_IN_A_ROW_FOR_HINT } from '../data/doors.js';
 import { sfx } from '../sfx.js';
 import { save, session, startHintTimer, state } from '../state.js';
-import { CSS, PALETTE, body, confetti, drawSticker, goTo, heading, label, makeButton, outlined, sparkle, toast, wipeIn, woodSign } from '../ui.js';
+import { CSS, PALETTE, body, confetti, drawSticker, goTo, heading, label, makeButton, outlined, restartOnResize, sparkle, toast, wipeIn, woodSign } from '../ui.js';
 
 const SIGN_TOP = 20;
 const GAP = 14;
@@ -28,6 +28,8 @@ export class DoorScene extends Phaser.Scene {
     this.busy = false;
     this.opened = session.doorsOpened.includes(this.door);
     this.overlay = null;
+    this.startingAnswer = data?.answer ?? '';
+    this.run = {}; // replies that arrive after a restart belong to an old run and are ignored
   }
 
   create() {
@@ -43,12 +45,25 @@ export class DoorScene extends Phaser.Scene {
     this.tabW = this.compact ? Math.min(TAB_W, (width - 40) / 3) : TAB_W;
     this.tabH = this.compact ? 50 : TAB_H;
     this.tabGap = this.compact ? 6 : 30;
+    // Short screens (phones sideways with browser bars): hint tabs move up into the top bar,
+    // so the sign, answer box and messages get the whole height.
+    this.short = this.compact && height < 560;
+    if (this.short) {
+      const left = 104;
+      const right = width - 10;
+      this.tabGap = 8;
+      this.tabH = 40;
+      this.tabW = Math.min(150, (right - left - 2 * this.tabGap - 12) / 3);
+      this.tabsCenter = (left + right) / 2;
+      this.hintsY = 30;
+      this.contentTop = 62;
+    }
     addMeadow(this, { hillsHeight: 150, flowers: 9, birds: 1 });
     this.startedAt = startHintTimer(this.door);
 
     if (this.compact) {
       makeButton(this, 54, 30, 'TOWER', () => goTo(this, 'TowerScene'), { width: 88, height: 40, size: 10, color: PALETTE.white }).setDepth(50);
-      this.add.text(width - 16, 31, `DOOR ${this.door}`, label(10, CSS.white, { stroke: CSS.navy, strokeThickness: 4 })).setOrigin(1, 0.5).setDepth(50);
+      if (!this.short) this.add.text(width - 16, 31, `DOOR ${this.door}`, label(10, CSS.white, { stroke: CSS.navy, strokeThickness: 4 })).setOrigin(1, 0.5).setDepth(50);
     } else {
       this.drawDoor();
       makeButton(this, 72, 40, 'TOWER', () => goTo(this, 'TowerScene'), { width: 112, height: 46, size: 11, color: PALETTE.white }).setDepth(50);
@@ -62,6 +77,11 @@ export class DoorScene extends Phaser.Scene {
     this.input.keyboard.addKey('ESC', false).on('down', () => this.closeHint());
 
     if (this.opened) this.showOpen(false);
+    restartOnResize(
+      this,
+      () => ({ door: this.door, answer: this.answerInput?.value ?? this.startingAnswer }),
+      () => document.activeElement !== this.answerInput,
+    );
     wipeIn(this);
   }
 
@@ -79,6 +99,10 @@ export class DoorScene extends Phaser.Scene {
   }
 
   wobbleDoor() {
+    if (!this.leaf) {
+      sfx.nope(); // small screens don't draw the door picture
+      return;
+    }
     this.tweens.killTweensOf(this.leaf);
     this.leaf.setAngle(0);
     this.tweens.add({ targets: this.leaf, angle: { from: -3, to: 3 }, duration: 70, yoyo: true, repeat: 3, onComplete: () => this.leaf.setAngle(0) });
@@ -93,9 +117,11 @@ export class DoorScene extends Phaser.Scene {
 
   // The door swings open with light and confetti.
   showOpen(celebrate) {
-    this.tweens.add({ targets: this.leaf, scaleX: 0.4, duration: celebrate ? 700 : 0, ease: 'Back.In' });
-    this.leaf.setTint(0xb8c0d0);
-    this.tweens.add({ targets: this.doorLight, alpha: 0.75, duration: 600, yoyo: true, repeat: -1 });
+    if (this.leaf) {
+      this.tweens.add({ targets: this.leaf, scaleX: 0.4, duration: celebrate ? 700 : 0, ease: 'Back.In' });
+      this.leaf.setTint(0xb8c0d0);
+      this.tweens.add({ targets: this.doorLight, alpha: 0.75, duration: 600, yoyo: true, repeat: -1 });
+    }
     this.time.addEvent({
       delay: 180,
       loop: true,
@@ -111,9 +137,67 @@ export class DoorScene extends Phaser.Scene {
       confetti(this, this.doorX, this.doorFloor - 120, 90);
       this.time.delayedCall(400, () => confetti(this, this.columnX, this.scale.height, 60));
     }
+    // Review mode: the answer box makes way for the answer and why it's right.
     this.answerInput.disabled = true;
+    this.answerInput.blur();
+    this.inputDom.keepHidden = true;
+    this.inputDom.setVisible(false);
     this.submit.setLabel('CLIMB!').setColor(PALETTE.cyan).setEnabled(true);
-    this.setFeedback(celebrate ? 'Correct! The door is open.' : 'This door is already open!', PALETTE.grass);
+    this.refreshHints(-1);
+    this.setFeedback(celebrate ? 'Correct! The door is open.' : 'Door open! Here is the answer and why.', PALETTE.grass);
+    this.loadReveal(celebrate ? 1400 : 0);
+  }
+
+  // Ask the server for the answer (it only tells players who opened this door).
+  async loadReveal(delay) {
+    const run = this.run;
+    const res = await api.reveal(this.door);
+    if (!this.sys.isActive() || this.run !== run) return;
+    if (!res.ok || !res.data.ok) {
+      this.setFeedback(res.offline ? "Door open! (Can't load the answer while offline.)" : 'Door open!', PALETTE.grass);
+      return;
+    }
+    this.time.delayedCall(delay, () => this.showReveal(res.data.answer, res.data.why));
+  }
+
+  // A green card in place of the answer box: ANSWER, the answer, and WHY.
+  showReveal(answer, why) {
+    this.tweens.killTweensOf(this.feedback);
+    this.feedback.removeAll(true);
+    const top = this.inputY - 30;
+    const room = (this.short ? this.scale.height - 8 : this.hintsY - this.tabH / 2 - 52) - top;
+    const w = this.columnW;
+    const build = (size) => {
+      const wrap = { wordWrap: { width: w - 40, useAdvancedWrap: true } };
+      const head = this.add.text(-w / 2 + 20, 12, 'ANSWER', label(9, CSS.green));
+      const ans = this.add.text(-w / 2 + 20, head.y + head.height + 6, answer, body(size + 3, CSS.navy, { ...wrap, lineSpacing: -2 }));
+      const head2 = this.add.text(-w / 2 + 20, ans.y + ans.height + 8, 'WHY', label(9, CSS.green));
+      const text = this.add.text(-w / 2 + 20, head2.y + head2.height + 6, why, body(size, CSS.navy, { ...wrap, lineSpacing: -2 }));
+      return { parts: [head, ans, head2, text], h: text.y + text.height + 14 };
+    };
+    let card = build(17);
+    if (card.h > room) {
+      card.parts.forEach((p) => p.destroy());
+      card = build(13);
+    }
+    if (card.h > room) {
+      // Still too tall: a button that opens the answer as a big scroll instead.
+      card.parts.forEach((p) => p.destroy());
+      const btn = makeButton(this, 0, 26, 'SEE THE ANSWER', () => this.openScroll('THE ANSWER', `${answer}\n\nWhy: ${why}`), {
+        width: Math.min(300, w),
+        height: 48,
+        size: 12,
+        color: PALETTE.grass,
+      });
+      this.feedback.add(btn);
+      this.feedback.setY(top).setAlpha(1);
+      return;
+    }
+    const g = this.add.graphics();
+    drawSticker(g, w, card.h, { fill: 0xe9fbe2, radius: 12, shadow: 4, stroke: 3, oy: card.h / 2 });
+    this.feedback.add([g, ...card.parts]);
+    this.feedback.setY(top).setAlpha(0);
+    this.tweens.add({ targets: this.feedback, alpha: 1, duration: 250 });
   }
 
   // ---------- Sign (context + question), answer box, feedback ----------
@@ -122,21 +206,25 @@ export class DoorScene extends Phaser.Scene {
     const left = this.columnX - this.columnW / 2 + 22;
     const wrap = { wordWrap: { width: this.columnW - 44 } };
     const top = this.contentTop;
-    const title = this.add.text(left, top + 16, this.info.title.toUpperCase(), label(11, '#7a3d12')).setDepth(6);
-    const context = this.add.text(left, title.y + title.height + 10, this.info.context, body(15, '#5c3410', { ...wrap, lineSpacing: -2 })).setDepth(6);
-    const divider = context.y + context.height + 8;
-    const question = this.add.text(left, divider + 10, this.info.question, body(21, CSS.navy, { ...wrap, lineSpacing: -1 })).setDepth(6);
-    const signH = question.y + question.height + 16 - top;
+    const s = this.short;
+    const titleText = `${this.compact ? `DOOR ${this.door} · ` : ''}${this.info.title.toUpperCase()}`;
+    const title = this.add.text(left, top + (s ? 10 : 16), titleText, label(s ? 9 : 11, '#7a3d12')).setDepth(6);
+    const context = this.add.text(left, title.y + title.height + (s ? 6 : 10), this.info.context, body(s ? 13 : 15, '#5c3410', { ...wrap, lineSpacing: -2 })).setDepth(6);
+    const divider = context.y + context.height + (s ? 5 : 8);
+    const question = this.add.text(left, divider + (s ? 6 : 10), this.info.question, body(s ? 18 : 21, CSS.navy, { ...wrap, lineSpacing: -1 })).setDepth(6);
+    const signH = question.y + question.height + (s ? 10 : 16) - top;
     woodSign(this, this.columnX, top + signH / 2, this.columnW, signH, { posts: 0 }).setDepth(5);
     this.add.graphics().setDepth(6).fillStyle(0xb87436, 0.6).fillRect(left, divider, this.columnW - 44, 3);
 
     // Answer box and GO! button just under the sign.
-    const inputY = top + signH + 44;
+    const inputY = top + signH + (this.short ? 38 : 44);
+    this.inputY = inputY;
     const inputWidth = this.compact ? Math.max(120, this.columnW - 112) : 384;
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'ft-answer';
     input.placeholder = this.info.placeholder;
+    input.value = this.startingAnswer;
     input.autocomplete = 'off';
     input.spellcheck = false;
     input.style.width = `${inputWidth}px`;
@@ -190,8 +278,9 @@ export class DoorScene extends Phaser.Scene {
 
     this.busy = true;
     this.submit.setLabel('...');
+    const run = this.run;
     const res = await api.door(this.door, answer);
-    if (!this.sys.isActive()) return;
+    if (!this.sys.isActive() || this.run !== run) return;
     this.busy = false;
     this.submit.setLabel('GO!');
 
@@ -231,6 +320,7 @@ export class DoorScene extends Phaser.Scene {
   }
 
   unlockedCount() {
+    if (this.opened) return 3; // an open door shows every hint
     const byTime = HINT_UNLOCK_MS.filter((ms) => this.elapsed() >= ms).length;
     return Math.min(3, byTime + (state.hintsEarly[this.door] ?? 0));
   }
@@ -246,13 +336,15 @@ export class DoorScene extends Phaser.Scene {
     const tabW = this.tabW;
     const tabH = this.tabH;
     const top = this.hintsY - tabH / 2 - (this.compact ? 30 : 36);
-    this.add.text(this.compact ? 16 : this.columnX - this.columnW / 2, top, 'HINTS', heading(this.compact ? 10 : 14, CSS.yellow)).setDepth(8);
+    if (!this.short) this.add.text(this.compact ? 16 : this.columnX - this.columnW / 2, top, 'HINTS', heading(this.compact ? 10 : 14, CSS.yellow)).setDepth(8);
     this.hintStatus = this.add
       .text(this.compact ? this.scale.width / 2 : this.columnX + this.columnW / 2, top + 2, '', outlined(this.compact ? 11 : 16, CSS.white, { wordWrap: { width: this.compact ? this.scale.width - 32 : undefined }, align: this.compact ? 'center' : 'right' }))
       .setOrigin(this.compact ? 0.5 : 1, 0)
-      .setDepth(8);
+      .setDepth(8)
+      .setVisible(!this.short); // in the top bar the tabs show their own countdowns
     this.tabs = [0, 1, 2].map((k) => {
-      const x = this.compact ? this.scale.width / 2 + (k - 1) * (tabW + this.tabGap) : this.columnX + (k - 1) * (tabW + this.tabGap);
+      const center = this.tabsCenter ?? (this.compact ? this.scale.width / 2 : this.columnX);
+      const x = center + (k - 1) * (tabW + this.tabGap);
       const tab = this.add.container(x, this.hintsY).setDepth(8).setSize(tabW, tabH);
       tab.setInteractive({ useHandCursor: true });
       tab.on('pointerover', () => !this.overlay && this.tweens.add({ targets: tab, y: this.hintsY - 5, duration: 100 }));
@@ -283,12 +375,12 @@ export class DoorScene extends Phaser.Scene {
         g.lineStyle(3, PALETTE.navy, 1).strokeRoundedRect(x, -tabH / 2 - 5, 12, tabH + 10, 5);
       });
       tab.add(g);
-      tab.add(this.add.text(0, -10, `HINT ${k + 1}`, label(this.compact ? 8 : 11, open ? CSS.coral : CSS.muted)).setOrigin(0.5));
+      tab.add(this.add.text(0, -tabH * 0.2, `HINT ${k + 1}`, label(this.compact ? 8 : 11, open ? CSS.coral : CSS.muted)).setOrigin(0.5));
       if (open) {
-        tab.add(this.add.text(0, 11, this.compact ? 'TAP TO READ' : 'Click to read', body(this.compact ? 12 : 16)).setOrigin(0.5));
+        tab.add(this.add.text(0, tabH * 0.22, this.compact ? 'TAP TO READ' : 'Click to read', body(this.compact ? 12 : 16)).setOrigin(0.5));
       } else {
-        tab.add(this.add.image(-tabW * 0.22, 11, 'padlock').setScale(this.compact ? 1.5 : 2));
-        tab.countdown = this.add.text(-tabW * 0.09, 11, clock(this.msUntil(k)), label(this.compact ? 9 : 12)).setOrigin(0, 0.5);
+        tab.add(this.add.image(-tabW * 0.22, tabH * 0.22, 'padlock').setScale(this.compact ? 1.5 : 2));
+        tab.countdown = this.add.text(-tabW * 0.09, tabH * 0.22, clock(this.msUntil(k)), label(this.compact ? 9 : 12)).setOrigin(0, 0.5);
         tab.add(tab.countdown);
       }
       if (k === fresh) {
@@ -337,13 +429,17 @@ export class DoorScene extends Phaser.Scene {
 
   // A big parchment over the screen that unrolls downward. Click outside, GOT IT or Esc closes it.
   openHint(k) {
+    this.openScroll(`HINT ${k + 1} OF 3`, this.info.hints[k]);
+  }
+
+  openScroll(titleText, message) {
     sfx.pop();
     this.inputDom.setVisible(false); // the HTML input would otherwise sit on top of the overlay
     const { width, height } = this.scale;
     const w = Math.min(640, width - (this.compact ? 32 : 0));
     const inset = this.compact ? 18 : 40;
     const fontSize = this.compact ? 17 : 20;
-    const text = this.add.text(-w / 2 + inset, 66, this.info.hints[k], body(fontSize, CSS.navy, { wordWrap: { width: w - inset * 2 }, lineSpacing: 2 }));
+    const text = this.add.text(-w / 2 + inset, 66, message, body(fontSize, CSS.navy, { wordWrap: { width: w - inset * 2, useAdvancedWrap: true }, lineSpacing: 2 }));
     const h = Math.min(text.height + (this.compact ? 136 : 160), height - 36);
     const top = Math.max(30, (height - h) / 2);
 
@@ -363,7 +459,7 @@ export class DoorScene extends Phaser.Scene {
       return r;
     };
     const bottomRod = rod(0);
-    const title = this.add.text(-w / 2 + inset, 28, `HINT ${k + 1} OF 3`, label(this.compact ? 11 : 14, CSS.coral));
+    const title = this.add.text(-w / 2 + inset, 28, titleText, label(this.compact ? 11 : 14, CSS.coral));
     const done = makeButton(this, 0, h - 42, 'GOT IT', () => this.closeHint(), { width: Math.min(180, w - 36), height: 48, size: this.compact ? 12 : 14 });
     const scroll = this.add.container(width / 2, top, [paper, blocker, text, title, done, rod(0), bottomRod]);
 
@@ -387,7 +483,7 @@ export class DoorScene extends Phaser.Scene {
       duration: 160,
       onComplete: () => {
         overlay.destroy();
-        this.inputDom.setVisible(true);
+        if (!this.opened) this.inputDom.setVisible(true);
       },
     });
   }

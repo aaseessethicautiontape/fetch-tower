@@ -5,7 +5,7 @@ import { FLOORS, FUTURE_WEEKS, STARTERS } from '../data/floors.js';
 import { getPokemon } from '../data/pokeapi.js';
 import { loadImages, trimmedTexture } from '../sprites.js';
 import { session, state } from '../state.js';
-import { CSS, IS_TOUCH, PALETTE, body, drawSticker, goTo, heading, label, lighten, makeButton, outlined, sparkle, toast, wipeIn, woodSign } from '../ui.js';
+import { CSS, IS_TOUCH, PALETTE, body, drawSticker, goTo, heading, label, lighten, makeButton, outlined, restartOnResize, sparkle, toast, wipeIn, woodSign } from '../ui.js';
 
 const FLOOR_H = 190;
 const GROUND = 250; // world space below Floor 1
@@ -26,6 +26,10 @@ export class TowerScene extends Phaser.Scene {
     super('TowerScene');
   }
 
+  init(data) {
+    this.resizeScrollY = data?.scrollY;
+  }
+
   create() {
     makeArt(this);
     const cam = this.cameras.main;
@@ -33,7 +37,10 @@ export class TowerScene extends Phaser.Scene {
     this.worldOffsetX = (this.scale.width - 960) / 2;
     cam.setBounds(-this.worldOffsetX, 0, this.scale.width, WORLD_H);
     cam.scrollX = -this.worldOffsetX;
-    cam.scrollY = WORLD_H - this.scale.height;
+    const restoredScroll = this.resizeScrollY != null;
+    cam.scrollY = restoredScroll
+      ? Phaser.Math.Clamp(this.resizeScrollY, 0, WORLD_H - this.scale.height)
+      : WORLD_H - this.scale.height;
 
     addSky(this);
     addClouds(this, { count: 7, minY: 20, maxY: 600, depth: -90, seed: 11 });
@@ -48,6 +55,7 @@ export class TowerScene extends Phaser.Scene {
 
     this.createHud();
     this.setupScrolling();
+    restartOnResize(this, () => ({ scrollY: this.cameras.main.scrollY }));
     this.renderProgress();
     this.loadPokemonSprites();
 
@@ -57,7 +65,7 @@ export class TowerScene extends Phaser.Scene {
     this.events.once('shutdown', () => window.removeEventListener('tower-force-open', onForceOpen));
 
     wipeIn(this);
-    this.time.delayedCall(500, () => this.panToFloor(session.highestFloor));
+    if (!restoredScroll) this.time.delayedCall(500, () => this.panToFloor(session.highestFloor));
 
     // Ask the server where this player really is, then redraw doors and locks.
     syncProgress().then(() => {
@@ -321,7 +329,7 @@ export class TowerScene extends Phaser.Scene {
   tryDoor(floor, door) {
     const n = floor.door;
     if (session.doorsOpened.includes(n)) {
-      toast(this, `Door ${n} is already open!`, { color: PALETTE.cyan });
+      goTo(this, 'DoorScene', { door: n }); // look back at the question, the answer and the hints
       return;
     }
     // A door can be tried after surviving its floor (or if you've already been there: the hint timer keeps running).

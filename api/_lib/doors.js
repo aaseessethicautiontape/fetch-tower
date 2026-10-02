@@ -64,3 +64,28 @@ async function door5(answer) {
 }
 
 export const CHECKS = { 1: door1, 2: door2, 3: door3, 4: door4, 5: door5 };
+
+// Shown only after a player has opened the door (POST /api/door with reveal: true),
+// so students can look back and see why the answer was right.
+export const REVEALS = {
+  1: {
+    answer: '30',
+    why: 'Rattata\'s JSON has a list called stats. In the entry where stat.name is "hp", base_stat is 30. (72 is its speed, and 35 is Pikachu\'s HP.)',
+  },
+  2: {
+    answer: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/19.png',
+    why: 'sprites.front_default is the link to the front picture. Picture links end in the Pokémon\'s number, so #19 ends in /pokemon/19.png.',
+  },
+  3: {
+    answer: 'v22 or newer (like v22.11.0)',
+    why: 'node --version prints which Node your laptop has. It always starts with v, and our projects need version 22 or higher.',
+  },
+  4: {
+    answer: 'npm install phaser@3',
+    why: 'npm install downloads a package into your project. @3 picks version 3. Without it you get Phaser 4, which this course does not use.',
+  },
+  5: {
+    answer: 'Your own GitHub username',
+    why: 'The server asked GitHub for your account, a repo called poke-arena, and a PRD.md file inside it. All three were there, so your work is really saved online.',
+  },
+};

@@ -31,6 +31,34 @@ export const CSS = {
 // Phones and tablets get on-screen controls instead of keyboard hints.
 export const IS_TOUCH = typeof window !== 'undefined' && ('ontouchstart' in window || window.matchMedia('(pointer: coarse)').matches);
 
+// True while a text box has focus (the on-screen keyboard is probably open).
+export function isTyping() {
+  const el = document.activeElement;
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+}
+
+// Rebuild a scene's layout when the screen size really changes (rotation, window resize).
+// Never while typing, and never for a size the scene was already built at, so it can't loop.
+export function restartOnResize(scene, getData = () => undefined, shouldRestart = () => true) {
+  let pending;
+  const builtW = scene.scale.width;
+  const builtH = scene.scale.height;
+  const onResize = () => {
+    if (!shouldRestart() || isTyping()) return;
+    if (Math.abs(scene.scale.width - builtW) < 2 && Math.abs(scene.scale.height - builtH) < 2) return;
+    pending?.remove();
+    pending = scene.time.delayedCall(180, () => {
+      pending = null;
+      if (scene.sys.isActive()) scene.scene.restart(getData());
+    });
+  };
+  scene.scale.on('resize', onResize);
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    scene.scale.off('resize', onResize);
+    pending?.remove();
+  });
+}
+
 export const HEAD_FONT = '"Press Start 2P", monospace';
 // Jersey 10 instead of Pixelify Sans: Pixelify's C reads as O and its 5 as S, which matters for
 // stat numbers, code in hints and typed answers. Jersey 10 is just as chunky and keeps them distinct.
@@ -205,7 +233,7 @@ function wipeCells(scene, startScale) {
 }
 
 function setDomVisible(scene, visible) {
-  scene.children.list.forEach((child) => child.type === 'DOMElement' && child.setVisible(visible));
+  scene.children.list.forEach((child) => child.type === 'DOMElement' && !child.keepHidden && child.setVisible(visible));
 }
 
 // Cover the screen with navy pixels, then start the next scene.
