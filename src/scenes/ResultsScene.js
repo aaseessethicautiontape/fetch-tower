@@ -14,8 +14,18 @@ export class ResultsScene extends Phaser.Scene {
 
   create(data) {
     makeArt(this);
-    const { width } = this.scale;
+    const { width, height } = this.scale;
     const cx = width / 2;
+    const layoutY = (designY) => (designY * height) / 640;
+    const compact = width < 900 || height > width;
+    const stackButtons = width < 480 || height > width;
+    const panelWidth = compact ? width - 24 : 580;
+    const panelTop = compact ? (height > width ? height * 0.23 : height * 0.2) : 146 * (height / 640);
+    const panelBottom = height - (stackButtons ? 164 : 84);
+    const panelHeight = compact ? Math.min(344, panelBottom - panelTop) : 344;
+    const panelY = compact ? (panelTop + panelBottom) / 2 : layoutY(318);
+    const rowHeight = compact ? (height < 560 ? 32 : 40) : 50;
+    const rowGap = compact ? (height < 560 ? 8 : 10) : 16;
     const floorNum = data?.floor ?? 1;
     const floor = FLOORS.find((f) => f.floor === floorNum) ?? FLOORS[0];
     const { timeSurvived = 0, defeated = 0, caught = 0 } = data ?? {};
@@ -28,22 +38,23 @@ export class ResultsScene extends Phaser.Scene {
     addMeadow(this, { hillsHeight: 150, flowers: 12, birds: 2 });
 
     // Panel with a ribbon across the top.
-    const panelY = 318;
     const panel = this.add.graphics({ x: cx, y: panelY }).setDepth(1);
-    drawSticker(panel, 580, 344, { radius: 18, shadow: 8 });
+    drawSticker(panel, panelWidth, panelHeight, { radius: 18, shadow: 8 });
 
-    const ribbon = this.add.graphics({ x: cx, y: 150 }).setDepth(2);
-    ribbon.fillStyle(PALETTE.navy, 1).fillRect(-322, -26 + 6, 644, 56);
-    ribbon.fillStyle(0xd94442, 1).fillTriangle(-350, -20, -300, -20, -300, 30).fillTriangle(350, -20, 300, -20, 300, 30);
-    ribbon.fillStyle(PALETTE.coral, 1).fillRect(-322, -26, 644, 56);
-    ribbon.fillStyle(0xff8a88, 1).fillRect(-314, -20, 628, 6);
-    ribbon.lineStyle(4, PALETTE.navy, 1).strokeRect(-322, -26, 644, 56);
+    const ribbonY = compact ? (height > width ? height * 0.16 : height * 0.11) : layoutY(150);
+    const ribbonHalfWidth = compact ? (width - 48) / 2 : 322;
+    const ribbon = this.add.graphics({ x: cx, y: ribbonY }).setDepth(2);
+    ribbon.fillStyle(PALETTE.navy, 1).fillRect(-ribbonHalfWidth, -26 + 6, ribbonHalfWidth * 2, 56);
+    ribbon.fillStyle(0xd94442, 1).fillTriangle(-ribbonHalfWidth - 28, -20, -ribbonHalfWidth + 22, -20, -ribbonHalfWidth + 22, 30).fillTriangle(ribbonHalfWidth + 28, -20, ribbonHalfWidth - 22, -20, ribbonHalfWidth - 22, 30);
+    ribbon.fillStyle(PALETTE.coral, 1).fillRect(-ribbonHalfWidth, -26, ribbonHalfWidth * 2, 56);
+    ribbon.fillStyle(0xff8a88, 1).fillRect(-ribbonHalfWidth + 8, -20, ribbonHalfWidth * 2 - 16, 6);
+    ribbon.lineStyle(4, PALETTE.navy, 1).strokeRect(-ribbonHalfWidth, -26, ribbonHalfWidth * 2, 56);
     const titleText = floor.boss ? 'WEEK 2 CLEARED!' : `${floor.label.toUpperCase()} CLEARED!`;
-    const title = this.add.text(cx, 152, titleText, heading(24, CSS.yellow)).setOrigin(0.5).setDepth(3).setScale(0);
+    const title = this.add.text(cx, ribbonY + 2, titleText, heading(compact ? (width < 360 ? 14 : 18) : 24, CSS.yellow)).setOrigin(0.5).setDepth(3).setScale(0);
     this.tweens.add({ targets: title, scale: 1, duration: 400, delay: 250, ease: 'Back.Out' });
 
     if (floor.boss) {
-      const trophy = this.add.image(cx, 84, 'star').setScale(8).setTint(PALETTE.yellow).setDepth(3);
+      const trophy = this.add.image(cx, compact ? ribbonY - 48 : layoutY(84), 'star').setScale(compact ? 5 : 8).setTint(PALETTE.yellow).setDepth(3);
       this.tweens.add({ targets: trophy, angle: 12, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
     }
 
@@ -54,13 +65,16 @@ export class ResultsScene extends Phaser.Scene {
       ['Score', score, ''],
     ];
     rows.forEach(([name, value, unit], i) => {
-      const y = 222 + i * 66;
+      const step = rowHeight + rowGap;
+      const firstY = panelY - (step * (rows.length - 1)) / 2;
+      const y = firstY + i * step;
       const isScore = i === rows.length - 1;
       const strip = this.add.graphics({ x: cx, y }).setDepth(2);
-      strip.fillStyle(isScore ? PALETTE.yellow : PALETTE.mist, 1).fillRoundedRect(-250, -24, 500, 50, 12);
-      if (isScore) strip.lineStyle(4, PALETTE.navy, 1).strokeRoundedRect(-250, -24, 500, 50, 12);
-      this.add.text(cx - 226, y + 1, name, body(isScore ? 26 : 24)).setOrigin(0, 0.5).setDepth(3);
-      const valueText = this.add.text(cx + 226, y + 2, `0${unit}`, label(isScore ? 22 : 20)).setOrigin(1, 0.5).setDepth(3).setAlpha(0.3);
+      const rowWidth = panelWidth - 32;
+      strip.fillStyle(isScore ? PALETTE.yellow : PALETTE.mist, 1).fillRoundedRect(-rowWidth / 2, -rowHeight / 2, rowWidth, rowHeight, 12);
+      if (isScore) strip.lineStyle(4, PALETTE.navy, 1).strokeRoundedRect(-rowWidth / 2, -rowHeight / 2, rowWidth, rowHeight, 12);
+      this.add.text(cx - rowWidth / 2 + 16, y + 1, name, body(compact ? 18 : isScore ? 26 : 24)).setOrigin(0, 0.5).setDepth(3);
+      const valueText = this.add.text(cx + rowWidth / 2 - 16, y + 2, `0${unit}`, label(compact ? 16 : isScore ? 22 : 20)).setOrigin(1, 0.5).setDepth(3).setAlpha(0.3);
 
       // Count up one row at a time, with a ding at the end of each.
       this.tweens.addCounter({
@@ -76,7 +90,7 @@ export class ResultsScene extends Phaser.Scene {
           this.tweens.add({ targets: valueText, scale: 1.3, duration: 90, yoyo: true });
           sparkle(this, cx + 226 - valueText.width / 2, y, { tint: PALETTE.yellow, depth: 4 });
           if (isScore) {
-            confetti(this, cx, 640, 70);
+            confetti(this, cx, height, 70);
             this.buttons.forEach((b) => this.tweens.add({ targets: b, alpha: 1, y: b.restY, duration: 300, ease: 'Back.Out' }));
           }
         },
@@ -85,17 +99,29 @@ export class ResultsScene extends Phaser.Scene {
 
     // Confetti as soon as the screen opens.
     this.time.delayedCall(350, () => {
-      confetti(this, 60, 660, 60);
-      confetti(this, width - 60, 660, 60);
+      confetti(this, 60, height + 20, 60);
+      confetti(this, width - 60, height + 20, 60);
     });
 
     const doorOpen = floor.door && session.doorsOpened.includes(floor.door);
     this.buttons = [];
     if (floor.door && !doorOpen) {
-      this.buttons.push(makeButton(this, cx - 130, 586, 'TOWER', () => goTo(this, 'TowerScene'), { width: 200, color: PALETTE.white }));
-      this.buttons.push(makeButton(this, cx + 120, 586, `TO DOOR ${floor.door}`, () => goTo(this, 'DoorScene', { door: floor.door }), { width: 260 }));
+      if (stackButtons) {
+        const buttonWidth = Math.min(300, width - 32);
+        this.buttons.push(makeButton(this, cx, height - 120, 'TOWER', () => goTo(this, 'TowerScene'), { width: buttonWidth, height: 54, size: 14, color: PALETTE.white }));
+        this.buttons.push(makeButton(this, cx, height - 56, `TO DOOR ${floor.door}`, () => goTo(this, 'DoorScene', { door: floor.door }), { width: buttonWidth, height: 54, size: 14 }));
+      } else if (compact) {
+        const buttonWidth = Math.min(220, (width - 36) / 2);
+        const buttonY = height - 44;
+        this.buttons.push(makeButton(this, cx - buttonWidth / 2 - 6, buttonY, 'TOWER', () => goTo(this, 'TowerScene'), { width: buttonWidth, height: 54, size: 14, color: PALETTE.white }));
+        this.buttons.push(makeButton(this, cx + buttonWidth / 2 + 6, buttonY, `TO DOOR ${floor.door}`, () => goTo(this, 'DoorScene', { door: floor.door }), { width: buttonWidth, height: 54, size: 12 }));
+      } else {
+        this.buttons.push(makeButton(this, cx - 130, layoutY(586), 'TOWER', () => goTo(this, 'TowerScene'), { width: 200, color: PALETTE.white }));
+        this.buttons.push(makeButton(this, cx + 120, layoutY(586), `TO DOOR ${floor.door}`, () => goTo(this, 'DoorScene', { door: floor.door }), { width: 260 }));
+      }
     } else {
-      this.buttons.push(makeButton(this, cx, 586, 'BACK TO TOWER', () => goTo(this, 'TowerScene'), { width: 300 }));
+      const buttonWidth = compact ? Math.min(300, width - 32) : 300;
+      this.buttons.push(makeButton(this, cx, compact ? height - 56 : layoutY(586), 'BACK TO TOWER', () => goTo(this, 'TowerScene'), { width: buttonWidth, height: compact ? 54 : 60, size: compact ? 14 : 16 }));
     }
     this.buttons.forEach((b) => {
       b.restY = b.y;

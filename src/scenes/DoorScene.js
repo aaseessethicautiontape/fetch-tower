@@ -6,13 +6,8 @@ import { sfx } from '../sfx.js';
 import { save, session, startHintTimer, state } from '../state.js';
 import { CSS, PALETTE, body, confetti, drawSticker, goTo, heading, label, makeButton, outlined, sparkle, toast, wipeIn, woodSign } from '../ui.js';
 
-const DOOR_X = 214; // centre of the stone door
-const DOOR_FLOOR = 566; // bottom of the stone door
-const COL_X = 680; // centre of the right-hand column
-const COL_W = 520;
 const SIGN_TOP = 20;
 const GAP = 14;
-const HINTS_Y = 568; // centre of the hint tabs
 const TAB_W = 150;
 const TAB_H = 62;
 
@@ -37,17 +32,33 @@ export class DoorScene extends Phaser.Scene {
 
   create() {
     makeArt(this);
+    const { width, height } = this.scale;
+    this.compact = width < 900 || height > width;
+    this.doorX = this.compact ? width / 2 : (214 / 960) * width;
+    this.columnX = this.compact ? width / 2 : (680 / 960) * width;
+    this.columnW = Math.max(1, this.compact ? width - 32 : Math.min(520, width - 80));
+    this.doorFloor = height - 74;
+    this.hintsY = height - (this.compact ? 62 : 72);
+    this.contentTop = this.compact ? 72 : SIGN_TOP;
+    this.tabW = this.compact ? Math.min(TAB_W, (width - 40) / 3) : TAB_W;
+    this.tabH = this.compact ? 50 : TAB_H;
+    this.tabGap = this.compact ? 6 : 30;
     addMeadow(this, { hillsHeight: 150, flowers: 9, birds: 1 });
     this.startedAt = startHintTimer(this.door);
 
-    this.drawDoor();
+    if (this.compact) {
+      makeButton(this, 54, 30, 'TOWER', () => goTo(this, 'TowerScene'), { width: 88, height: 40, size: 10, color: PALETTE.white }).setDepth(50);
+      this.add.text(width - 16, 31, `DOOR ${this.door}`, label(10, CSS.white, { stroke: CSS.navy, strokeThickness: 4 })).setOrigin(1, 0.5).setDepth(50);
+    } else {
+      this.drawDoor();
+      makeButton(this, 72, 40, 'TOWER', () => goTo(this, 'TowerScene'), { width: 112, height: 46, size: 11, color: PALETTE.white }).setDepth(50);
+    }
     this.drawQuestion();
     this.drawHintBar();
     this.shownUnlocked = this.unlockedCount();
     this.refreshHints(-1);
     this.time.addEvent({ delay: 250, loop: true, callback: () => this.tickHints() });
 
-    makeButton(this, 72, 40, 'TOWER', () => goTo(this, 'TowerScene'), { width: 112, height: 46, size: 11, color: PALETTE.white }).setDepth(50);
     this.input.keyboard.addKey('ESC', false).on('down', () => this.closeHint());
 
     if (this.opened) this.showOpen(false);
@@ -57,8 +68,8 @@ export class DoorScene extends Phaser.Scene {
   // ---------- The big friendly door ----------
 
   drawDoor() {
-    const fx = DOOR_X;
-    const fy = DOOR_FLOOR;
+    const fx = this.doorX;
+    const fy = this.doorFloor;
     this.add.text(fx, fy - 300, `DOOR ${this.door}`, heading(22)).setOrigin(0.5).setDepth(5);
     this.add.image(fx, fy, 'door-frame').setOrigin(0.5, 1).setScale(3).setDepth(1);
     // Light waiting behind the door, then the door itself hinged on its left edge.
@@ -73,7 +84,7 @@ export class DoorScene extends Phaser.Scene {
     this.tweens.add({ targets: this.leaf, angle: { from: -3, to: 3 }, duration: 70, yoyo: true, repeat: 3, onComplete: () => this.leaf.setAngle(0) });
 
     // A little "nope" puff.
-    const puff = this.add.container(DOOR_X + 70, DOOR_FLOOR - 250).setDepth(20).setScale(0);
+    const puff = this.add.container(this.doorX + 70, this.doorFloor - 250).setDepth(20).setScale(0);
     puff.add([this.add.image(0, 0, 'puff').setScale(4), this.add.text(0, 2, 'NOPE', label(12))].map((o) => o.setOrigin(0.5)));
     this.tweens.add({ targets: puff, scale: 1, duration: 200, ease: 'Back.Out' });
     this.tweens.add({ targets: puff, y: puff.y - 30, alpha: 0, delay: 700, duration: 400, onComplete: () => puff.destroy() });
@@ -89,7 +100,7 @@ export class DoorScene extends Phaser.Scene {
       delay: 180,
       loop: true,
       callback: () =>
-        sparkle(this, DOOR_X + Phaser.Math.Between(-70, 70), DOOR_FLOOR - Phaser.Math.Between(20, 230), {
+        sparkle(this, this.doorX + Phaser.Math.Between(-70, 70), this.doorFloor - Phaser.Math.Between(20, 230), {
           tint: Phaser.Utils.Array.GetRandom([PALETTE.yellow, PALETTE.white, PALETTE.cyan]),
           depth: 6,
         }),
@@ -97,8 +108,8 @@ export class DoorScene extends Phaser.Scene {
     if (celebrate) {
       sfx.open();
       this.cameras.main.flash(300, 255, 250, 210);
-      confetti(this, DOOR_X, DOOR_FLOOR - 120, 90);
-      this.time.delayedCall(400, () => confetti(this, COL_X, 640, 60));
+      confetti(this, this.doorX, this.doorFloor - 120, 90);
+      this.time.delayedCall(400, () => confetti(this, this.columnX, this.scale.height, 60));
     }
     this.answerInput.disabled = true;
     this.submit.setLabel('CLIMB!').setColor(PALETTE.cyan).setEnabled(true);
@@ -108,35 +119,44 @@ export class DoorScene extends Phaser.Scene {
   // ---------- Sign (context + question), answer box, feedback ----------
 
   drawQuestion() {
-    const left = COL_X - COL_W / 2 + 22;
-    const wrap = { wordWrap: { width: COL_W - 44 } };
-    const title = this.add.text(left, SIGN_TOP + 16, this.info.title.toUpperCase(), label(11, '#7a3d12')).setDepth(6);
+    const left = this.columnX - this.columnW / 2 + 22;
+    const wrap = { wordWrap: { width: this.columnW - 44 } };
+    const top = this.contentTop;
+    const title = this.add.text(left, top + 16, this.info.title.toUpperCase(), label(11, '#7a3d12')).setDepth(6);
     const context = this.add.text(left, title.y + title.height + 10, this.info.context, body(15, '#5c3410', { ...wrap, lineSpacing: -2 })).setDepth(6);
     const divider = context.y + context.height + 8;
     const question = this.add.text(left, divider + 10, this.info.question, body(21, CSS.navy, { ...wrap, lineSpacing: -1 })).setDepth(6);
-    const signH = question.y + question.height + 16 - SIGN_TOP;
-    woodSign(this, COL_X, SIGN_TOP + signH / 2, COL_W, signH, { posts: 0 }).setDepth(5);
-    this.add.graphics().setDepth(6).fillStyle(0xb87436, 0.6).fillRect(left, divider, COL_W - 44, 3);
+    const signH = question.y + question.height + 16 - top;
+    woodSign(this, this.columnX, top + signH / 2, this.columnW, signH, { posts: 0 }).setDepth(5);
+    this.add.graphics().setDepth(6).fillStyle(0xb87436, 0.6).fillRect(left, divider, this.columnW - 44, 3);
 
     // Answer box and GO! button just under the sign.
-    const inputY = SIGN_TOP + signH + 44;
+    const inputY = top + signH + 44;
+    const inputWidth = this.compact ? Math.max(120, this.columnW - 112) : 384;
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'ft-answer';
     input.placeholder = this.info.placeholder;
     input.autocomplete = 'off';
     input.spellcheck = false;
-    input.style.width = '384px';
+    input.style.width = `${inputWidth}px`;
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.onSubmit();
     });
-    this.inputDom = this.add.dom(COL_X - 66, inputY, input).setDepth(10);
+    this.inputDom = this.add.dom(this.columnX - (this.compact ? 56 : 66), inputY, input).setDepth(10);
     this.answerInput = input;
-    this.submit = makeButton(this, COL_X + 196, inputY, 'GO!', () => this.onSubmit(), { width: 110, height: 54, size: 16 }).setDepth(10);
+    this.submit = makeButton(
+      this,
+      this.compact ? this.columnX + this.columnW / 2 - 48 : this.columnX + 196,
+      inputY,
+      'GO!',
+      () => this.onSubmit(),
+      { width: this.compact ? 96 : 110, height: 54, size: this.compact ? 13 : 16 },
+    ).setDepth(10);
 
     // The message bubble hangs below the answer box (box + shadow end ~34px under its centre).
     this.feedbackTop = inputY + 34 + GAP;
-    this.feedback = this.add.container(COL_X, this.feedbackTop).setDepth(10);
+    this.feedback = this.add.container(this.columnX, this.feedbackTop).setDepth(10);
   }
 
   // The bubble only grows downward from feedbackTop, so it never covers the answer box.
@@ -147,10 +167,10 @@ export class DoorScene extends Phaser.Scene {
     if (!message) return;
     const textColor = fill === PALETTE.coral || fill === PALETTE.grass ? CSS.white : CSS.navy;
     const stroke = textColor === CSS.white ? { stroke: CSS.navy, strokeThickness: 4 } : {};
-    const t = this.add.text(0, 8, message, body(18, textColor, { wordWrap: { width: COL_W - 48 }, align: 'center', ...stroke })).setOrigin(0.5, 0);
+    const t = this.add.text(0, 8, message, body(18, textColor, { wordWrap: { width: this.columnW - 48 }, align: 'center', ...stroke })).setOrigin(0.5, 0);
     const h = t.height + 16;
     const g = this.add.graphics();
-    drawSticker(g, Math.min(COL_W, t.width + 32), h, { fill, radius: 12, shadow: 4, stroke: 3, oy: h / 2 });
+    drawSticker(g, Math.min(this.columnW, t.width + 32), h, { fill, radius: 12, shadow: 4, stroke: 3, oy: h / 2 });
     this.feedback.add([g, t]);
     this.feedback.setAlpha(0).setY(this.feedbackTop + 8);
     this.tweens.add({ targets: this.feedback, alpha: 1, y: this.feedbackTop, duration: 180, ease: 'Quad.Out' });
@@ -223,15 +243,20 @@ export class DoorScene extends Phaser.Scene {
   }
 
   drawHintBar() {
-    const top = HINTS_Y - TAB_H / 2 - 36;
-    this.add.text(COL_X - COL_W / 2, top, 'HINTS', heading(14, CSS.yellow)).setDepth(8);
-    this.hintStatus = this.add.text(COL_X + COL_W / 2, top + 2, '', outlined(16)).setOrigin(1, 0).setDepth(8);
+    const tabW = this.tabW;
+    const tabH = this.tabH;
+    const top = this.hintsY - tabH / 2 - (this.compact ? 30 : 36);
+    this.add.text(this.compact ? 16 : this.columnX - this.columnW / 2, top, 'HINTS', heading(this.compact ? 10 : 14, CSS.yellow)).setDepth(8);
+    this.hintStatus = this.add
+      .text(this.compact ? this.scale.width / 2 : this.columnX + this.columnW / 2, top + 2, '', outlined(this.compact ? 11 : 16, CSS.white, { wordWrap: { width: this.compact ? this.scale.width - 32 : undefined }, align: this.compact ? 'center' : 'right' }))
+      .setOrigin(this.compact ? 0.5 : 1, 0)
+      .setDepth(8);
     this.tabs = [0, 1, 2].map((k) => {
-      const x = COL_X + (k - 1) * (TAB_W + 30);
-      const tab = this.add.container(x, HINTS_Y).setDepth(8).setSize(TAB_W, TAB_H);
+      const x = this.compact ? this.scale.width / 2 + (k - 1) * (tabW + this.tabGap) : this.columnX + (k - 1) * (tabW + this.tabGap);
+      const tab = this.add.container(x, this.hintsY).setDepth(8).setSize(tabW, tabH);
       tab.setInteractive({ useHandCursor: true });
-      tab.on('pointerover', () => !this.overlay && this.tweens.add({ targets: tab, y: HINTS_Y - 5, duration: 100 }));
-      tab.on('pointerout', () => this.tweens.add({ targets: tab, y: HINTS_Y, duration: 100 }));
+      tab.on('pointerover', () => !this.overlay && this.tweens.add({ targets: tab, y: this.hintsY - 5, duration: 100 }));
+      tab.on('pointerout', () => this.tweens.add({ targets: tab, y: this.hintsY, duration: 100 }));
       tab.on('pointerdown', () => this.onTab(k));
       return tab;
     });
@@ -240,28 +265,30 @@ export class DoorScene extends Phaser.Scene {
   // Redraw the tabs. `fresh` = index of a hint that just unlocked (it pops in with sparkles).
   refreshHints(fresh) {
     const unlocked = this.unlockedCount();
+    const tabW = this.tabW;
+    const tabH = this.tabH;
     this.tabs.forEach((tab, k) => {
       tab.removeAll(true);
       tab.countdown = null;
       const open = k < unlocked;
       const g = this.add.graphics();
-      if (open) g.lineStyle(6, PALETTE.cyan, 1).strokeRoundedRect(-TAB_W / 2 - 11, -TAB_H / 2 - 9, TAB_W + 22, TAB_H + 18, 14);
+      if (open) g.lineStyle(6, PALETTE.cyan, 1).strokeRoundedRect(-tabW / 2 - 6, -tabH / 2 - 6, tabW + 12, tabH + 12, 14);
       // A rolled scroll: paper with wooden ends.
-      g.fillStyle(PALETTE.navy, 1).fillRoundedRect(-TAB_W / 2 + 5, -TAB_H / 2 + 5, TAB_W, TAB_H, 10);
-      g.fillStyle(open ? 0xfdf1d0 : 0xe9dcbc, 1).fillRoundedRect(-TAB_W / 2, -TAB_H / 2, TAB_W, TAB_H, 10);
-      g.fillStyle(open ? 0xfff8e4 : 0xf1e6cb, 1).fillRect(-TAB_W / 2 + 14, -TAB_H / 2 + 5, TAB_W - 28, 5);
-      g.lineStyle(3, PALETTE.navy, 1).strokeRoundedRect(-TAB_W / 2, -TAB_H / 2, TAB_W, TAB_H, 10);
-      [-TAB_W / 2 - 6, TAB_W / 2 - 6].forEach((x) => {
-        g.fillStyle(PALETTE.woodDark, 1).fillRoundedRect(x, -TAB_H / 2 - 5, 12, TAB_H + 10, 5);
-        g.lineStyle(3, PALETTE.navy, 1).strokeRoundedRect(x, -TAB_H / 2 - 5, 12, TAB_H + 10, 5);
+      g.fillStyle(PALETTE.navy, 1).fillRoundedRect(-tabW / 2 + 5, -tabH / 2 + 5, tabW, tabH, 10);
+      g.fillStyle(open ? 0xfdf1d0 : 0xe9dcbc, 1).fillRoundedRect(-tabW / 2, -tabH / 2, tabW, tabH, 10);
+      g.fillStyle(open ? 0xfff8e4 : 0xf1e6cb, 1).fillRect(-tabW / 2 + 14, -tabH / 2 + 5, tabW - 28, 5);
+      g.lineStyle(3, PALETTE.navy, 1).strokeRoundedRect(-tabW / 2, -tabH / 2, tabW, tabH, 10);
+      [-tabW / 2 - 6, tabW / 2 - 6].forEach((x) => {
+        g.fillStyle(PALETTE.woodDark, 1).fillRoundedRect(x, -tabH / 2 - 5, 12, tabH + 10, 5);
+        g.lineStyle(3, PALETTE.navy, 1).strokeRoundedRect(x, -tabH / 2 - 5, 12, tabH + 10, 5);
       });
       tab.add(g);
-      tab.add(this.add.text(0, -12, `HINT ${k + 1}`, label(11, open ? CSS.coral : CSS.muted)).setOrigin(0.5));
+      tab.add(this.add.text(0, -10, `HINT ${k + 1}`, label(this.compact ? 8 : 11, open ? CSS.coral : CSS.muted)).setOrigin(0.5));
       if (open) {
-        tab.add(this.add.text(0, 13, 'Click to read', body(16)).setOrigin(0.5));
+        tab.add(this.add.text(0, 11, this.compact ? 'TAP TO READ' : 'Click to read', body(this.compact ? 12 : 16)).setOrigin(0.5));
       } else {
-        tab.add(this.add.image(-34, 13, 'padlock').setScale(2));
-        tab.countdown = this.add.text(-14, 13, clock(this.msUntil(k)), label(12)).setOrigin(0, 0.5);
+        tab.add(this.add.image(-tabW * 0.22, 11, 'padlock').setScale(this.compact ? 1.5 : 2));
+        tab.countdown = this.add.text(-tabW * 0.09, 11, clock(this.msUntil(k)), label(this.compact ? 9 : 12)).setOrigin(0, 0.5);
         tab.add(tab.countdown);
       }
       if (k === fresh) {
@@ -269,7 +296,7 @@ export class DoorScene extends Phaser.Scene {
         this.tweens.add({ targets: tab, scale: 1, duration: 380, ease: 'Back.Out' });
         for (let i = 0; i < 6; i++) {
           this.time.delayedCall(i * 70, () =>
-            sparkle(this, tab.x + Phaser.Math.Between(-80, 80), tab.y + Phaser.Math.Between(-34, 34), { tint: PALETTE.yellow, depth: 9 }),
+            sparkle(this, tab.x + Phaser.Math.Between(-tabW / 2, tabW / 2), tab.y + Phaser.Math.Between(-tabH / 2, tabH / 2), { tint: PALETTE.yellow, depth: 9 }),
           );
         }
       }
@@ -313,9 +340,11 @@ export class DoorScene extends Phaser.Scene {
     sfx.pop();
     this.inputDom.setVisible(false); // the HTML input would otherwise sit on top of the overlay
     const { width, height } = this.scale;
-    const w = 640;
-    const text = this.add.text(-w / 2 + 40, 66, this.info.hints[k], body(20, CSS.navy, { wordWrap: { width: w - 80 }, lineSpacing: 2 }));
-    const h = text.height + 160;
+    const w = Math.min(640, width - (this.compact ? 32 : 0));
+    const inset = this.compact ? 18 : 40;
+    const fontSize = this.compact ? 17 : 20;
+    const text = this.add.text(-w / 2 + inset, 66, this.info.hints[k], body(fontSize, CSS.navy, { wordWrap: { width: w - inset * 2 }, lineSpacing: 2 }));
+    const h = Math.min(text.height + (this.compact ? 136 : 160), height - 36);
     const top = Math.max(30, (height - h) / 2);
 
     const shade = this.add.rectangle(0, 0, width, height, PALETTE.navy, 0.6).setOrigin(0).setInteractive();
@@ -334,8 +363,8 @@ export class DoorScene extends Phaser.Scene {
       return r;
     };
     const bottomRod = rod(0);
-    const title = this.add.text(-w / 2 + 40, 28, `HINT ${k + 1} OF 3`, label(14, CSS.coral));
-    const done = makeButton(this, 0, h - 52, 'GOT IT', () => this.closeHint(), { width: 180, height: 50, size: 14 });
+    const title = this.add.text(-w / 2 + inset, 28, `HINT ${k + 1} OF 3`, label(this.compact ? 11 : 14, CSS.coral));
+    const done = makeButton(this, 0, h - 42, 'GOT IT', () => this.closeHint(), { width: Math.min(180, w - 36), height: 48, size: this.compact ? 12 : 14 });
     const scroll = this.add.container(width / 2, top, [paper, blocker, text, title, done, rod(0), bottomRod]);
 
     // Unroll: the paper grows from the top rod while the bottom rod slides down.

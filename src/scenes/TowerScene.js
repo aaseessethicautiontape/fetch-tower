@@ -29,7 +29,10 @@ export class TowerScene extends Phaser.Scene {
   create() {
     makeArt(this);
     const cam = this.cameras.main;
-    cam.setBounds(0, 0, this.scale.width, WORLD_H);
+    // The tower art uses a 960px layout; center it in any extra width Phaser expands into.
+    this.worldOffsetX = (this.scale.width - 960) / 2;
+    cam.setBounds(-this.worldOffsetX, 0, this.scale.width, WORLD_H);
+    cam.scrollX = -this.worldOffsetX;
     cam.scrollY = WORLD_H - this.scale.height;
 
     addSky(this);
@@ -100,10 +103,11 @@ export class TowerScene extends Phaser.Scene {
 
   drawGround() {
     const { width } = this.scale;
-    this.add.image(0, WORLD_H, hillsTexture(this, width, 270)).setOrigin(0, 1).setDepth(20);
+    const left = -this.worldOffsetX;
+    this.add.image(left, WORLD_H, hillsTexture(this, width, 270)).setOrigin(0, 1).setDepth(20);
     const rand = seeded(5);
     const spots = Array.from({ length: 18 }, (_, i) => [
-      Math.round((i + 0.5) * (width / 18) + (rand() - 0.5) * 30),
+      Math.round(left + (i + 0.5) * (width / 18) + (rand() - 0.5) * 30),
       Math.round(WORLD_H - 8 - rand() * 110),
     ]);
     addFlowers(this, spots, { depth: 21 });
@@ -399,7 +403,13 @@ export class TowerScene extends Phaser.Scene {
 
   createHud() {
     const { width, height } = this.scale;
-    makeButton(this, 72, 40, 'TITLE', () => goTo(this, 'TitleScene'), { width: 112, height: 46, size: 11, color: PALETTE.white })
+    const compact = width < 760 || height > width;
+    const titleWidth = compact ? Math.min(112, (width - 40) * 0.38) : 112;
+    const trophiesWidth = compact ? Math.min(180, (width - 40) * 0.56) : 180;
+    const buttonY = compact ? 34 : 40;
+    const titleX = compact ? 12 + titleWidth / 2 : 72;
+    const trophiesX = compact ? width - 12 - trophiesWidth / 2 : width - 104;
+    makeButton(this, titleX, buttonY, 'TITLE', () => goTo(this, 'TitleScene'), { width: titleWidth, height: 46, size: compact ? 9 : 11, color: PALETTE.white })
       .setScrollFactor(0)
       .setDepth(1000);
 
@@ -411,18 +421,18 @@ export class TowerScene extends Phaser.Scene {
     drawSticker(tag, w, 54, { radius: 12, shadow: 5, ox: w / 2 });
     tagText.setPosition(16, -9);
     sub.setPosition(16, 13);
-    this.add.container(144, 40, [tag, tagText, sub]).setScrollFactor(0).setDepth(1000);
+    this.add.container(compact ? width / 2 : 144, compact ? 100 : 40, [tag, tagText, sub]).setScrollFactor(0).setDepth(1000);
 
-    makeButton(this, width - 104, 40, 'TROPHIES', () => goTo(this, 'LeaderboardScene'), { width: 180, height: 46, size: 12, color: PALETTE.cyan })
+    makeButton(this, trophiesX, buttonY, 'TROPHIES', () => goTo(this, 'LeaderboardScene'), { width: trophiesWidth, height: 46, size: compact ? 10 : 12, color: PALETTE.cyan })
       .setScrollFactor(0)
       .setDepth(1000);
 
     const offText = this.add.text(0, 0, 'Offline: progress is not saved yet', body(15, CSS.white)).setOrigin(0.5);
     const off = this.add.graphics();
     drawSticker(off, offText.width + 24, 30, { fill: PALETTE.coral, radius: 15, shadow: 3, stroke: 3 });
-    this.offlineChip = this.add.container(width / 2, 40, [off, offText]).setScrollFactor(0).setDepth(1000).setVisible(false);
+    this.offlineChip = this.add.container(width / 2, compact ? 150 : 88, [off, offText]).setScrollFactor(0).setDepth(1000).setVisible(false);
 
-    const hint = this.add.text(width / 2, height - 28, IS_TOUCH ? 'Drag up and down to look around' : 'Scroll, drag or use the arrow keys to look around', outlined(17)).setOrigin(0.5);
+    const hint = this.add.text(width / 2, height - 28, IS_TOUCH ? 'Drag up and down to look around' : 'Scroll, drag or use the arrow keys to look around', outlined(compact ? 13 : 17, CSS.white, { wordWrap: { width: width - 32 }, align: 'center' })).setOrigin(0.5);
     hint.setScrollFactor(0).setDepth(1000);
     this.tweens.add({ targets: hint, alpha: 0, delay: 5000, duration: 800 });
   }

@@ -1,6 +1,5 @@
 import Phaser from 'phaser';
 import { forceOpen } from './api.js';
-import { IS_TOUCH } from './ui.js';
 import { TitleScene } from './scenes/TitleScene.js';
 import { TowerScene } from './scenes/TowerScene.js';
 import { ArenaScene } from './scenes/ArenaScene.js';
@@ -16,8 +15,8 @@ const config = {
   backgroundColor: '#5ec8ff',
   pixelArt: true,
   scale: {
-    // Keep the full game visible while expanding its view to use wide phone screens.
-    mode: Phaser.Scale.EXPAND,
+    // Match the game coordinate space to the viewport so UI can reflow at any size.
+    mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
   dom: {
@@ -32,8 +31,6 @@ const config = {
   },
   scene: [TitleScene, TowerScene, ArenaScene, DoorScene, ResultsScene, LeaderboardScene],
 };
-
-if (IS_TOUCH) document.body.classList.add('touch');
 
 // The fake door on Floor 3 tells students to try this in the Console (PRD section 7).
 window.tower = { forceOpen };

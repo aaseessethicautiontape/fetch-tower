@@ -10,18 +10,14 @@ import { trimmedTexture } from '../sprites.js';
 import { state, session, addToPokedex } from '../state.js';
 import { CSS, IS_TOUCH, PALETTE, body, confetti, drawSticker, goTo, heading, label, lighten, makeButton, sparkle, wipeIn } from '../ui.js';
 
-// Walkable area. HUD stickers float over the grass around it.
-const ARENA = { x: 24, y: 92, w: 912, h: 516 };
-
 // Fixed by PRD section 5 (not balance knobs).
 const CATCH_BELOW = 0.2; // HP fraction that shows the catch ring
 const CATCH_CHANCE = 0.6;
 const STAT_CARD_FOR = 3000;
 
 // Whole-number sprite scales keep the pixel art crisp.
-const WILD_SCALE = 2;
-const BOSS_SCALE = 3;
-const TEAM_SCALE = 2;
+const DESKTOP_SCALES = { wild: 2, boss: 3, team: 2, player: 5 };
+const COMPACT_SCALES = { wild: 1, boss: 2, team: 1, player: 4 };
 
 const FOLLOW_GAP = 50; // px between Pokémon in the follow line
 const HP_BAR_BASE = 170; // px width of the HP bar at base max HP
@@ -55,13 +51,22 @@ export class ArenaScene extends Phaser.Scene {
     this.shots = [];
     this.seenSpecies = new Set();
     this.statCards = [];
+    this.pendingStatCards = [];
     this.run = {}; // identifies this run, so a load from a previous run can't finish into it
   }
 
   create() {
     makeArt(this);
+    const { width, height } = this.scale;
+    const portrait = height > width;
+    this.compact = portrait || width < 700;
+    this.spriteScales = this.compact ? COMPACT_SCALES : DESKTOP_SCALES;
+    const topInset = portrait ? 150 : 92;
+    const bottomInset = portrait ? 138 : 124;
+    // Reserve room for the stacked HUD and bottom touch controls on portrait screens.
+    this.arena = { x: 24, y: topInset, w: Math.max(1, width - 48), h: Math.max(1, height - topInset - bottomInset) };
     this.drawArena();
-    this.loading = this.add.container(480, 330).setDepth(DEPTH.overlay);
+    this.loading = this.add.container(width / 2, height / 2).setDepth(DEPTH.overlay);
     const ball = this.add.image(0, -40, 'ball').setScale(4);
     this.tweens.add({ targets: ball, angle: 360, duration: 700, repeat: -1 });
     this.loading.add([ball, this.add.text(0, 30, `LOADING ${this.floor.label.toUpperCase()}...`, heading(18)).setOrigin(0.5)]);
@@ -85,7 +90,7 @@ export class ArenaScene extends Phaser.Scene {
       if (!live()) return;
       this.loading.removeAll(true);
       this.loading.add(this.add.text(0, -20, "Couldn't reach PokéAPI.\nCheck your internet.", heading(16, CSS.white, { align: 'center' })).setOrigin(0.5));
-      makeButton(this, 480, 420, 'BACK', () => goTo(this, 'TowerScene')).setDepth(DEPTH.overlay);
+      makeButton(this, this.scale.width / 2, this.scale.height / 2 + 100, 'BACK', () => goTo(this, 'TowerScene')).setDepth(DEPTH.overlay);
       return;
     }
     if (!live()) return;
@@ -128,9 +133,9 @@ export class ArenaScene extends Phaser.Scene {
     // Edge decorations (no collision): bushes and rocks just outside the walkable area.
     const edge = [];
     for (let x = 30; x < width; x += 110) {
-      edge.push([x + rand() * 40, ARENA.y - 18], [x + rand() * 40, ARENA.y + ARENA.h + 26]);
+      edge.push([x + rand() * 40, this.arena.y - 18], [x + rand() * 40, this.arena.y + this.arena.h + 26]);
     }
-    for (let y = ARENA.y + 70; y < ARENA.y + ARENA.h; y += 120) {
+    for (let y = this.arena.y + 70; y < this.arena.y + this.arena.h; y += 120) {
       edge.push([8 + rand() * 10, y + rand() * 30], [width - 8 - rand() * 10, y + rand() * 30]);
     }
     edge.forEach(([x, y], i) => {
@@ -143,19 +148,20 @@ export class ArenaScene extends Phaser.Scene {
   // ---------- Setup ----------
 
   startFloor(starterId) {
-    this.physics.world.setBounds(ARENA.x, ARENA.y, ARENA.w, ARENA.h);
+    const arena = this.arena;
+    this.physics.world.setBounds(arena.x, arena.y, arena.w, arena.h);
 
     const starter = this.pokemon.get(starterId);
     this.baseMaxHp = toGameStats(starter).maxHp * BALANCE.player.hpMultiplier;
     this.maxHp = this.boostedMaxHp();
     this.hp = this.maxHp;
 
-    const cx = ARENA.x + ARENA.w / 2;
-    const cy = ARENA.y + ARENA.h / 2;
+    const cx = arena.x + arena.w / 2;
+    const cy = arena.y + arena.h / 2;
 
-    this.player = this.physics.add.sprite(cx, cy, 'trainer').setScale(3).setCollideWorldBounds(true);
+    this.player = this.physics.add.sprite(cx, cy, 'trainer').setScale(this.spriteScales.player).setCollideWorldBounds(true);
     this.player.body.setSize(8, 10).setOffset(3, 5);
-    this.addShadow(this.player, 3);
+    this.addShadow(this.player, this.compact ? 2 : 3);
 
     // Team slot 0 is the starter, slots 1-3 are caught Pokémon carried over this session.
     this.team = [starter, ...session.squad].map((mon, i) => this.makeMember(mon, cx - 50 - i * FOLLOW_GAP, cy + 10));
@@ -200,7 +206,7 @@ export class ArenaScene extends Phaser.Scene {
 
   makeMember(mon, x, y) {
     const color = typeColor(mon);
-    const img = this.add.image(x, y, this.spriteKeys.get(mon.id) ?? spriteKey(mon.id)).setScale(TEAM_SCALE);
+    const img = this.add.image(x, y, this.spriteKeys.get(mon.id) ?? spriteKey(mon.id)).setScale(this.spriteScales.team);
     this.addShadow(img, 2);
     const trail = this.add
       .particles(0, 0, 'px', { lifespan: 240, scale: { start: 3, end: 0 }, alpha: { start: 0.9, end: 0 }, tint: [color, lighten(color, 0.25)], emitting: false })
@@ -218,6 +224,7 @@ export class ArenaScene extends Phaser.Scene {
 
   createHud(starter) {
     const { width, height } = this.scale;
+    const compact = this.compact;
 
     // Top-left: starter portrait, name, HP bar, hearts, dash meter.
     this.hud = this.add.container(14, 10).setDepth(DEPTH.hud);
@@ -231,22 +238,27 @@ export class ArenaScene extends Phaser.Scene {
     this.hud.add(this.add.text(64, 8, starter.name.toUpperCase(), label(10)));
     this.hpText = this.add.text(0, 6, '', body(16, CSS.muted)).setOrigin(1, 0);
     this.dashLabel = this.add.text(64 + 128, 54, IS_TOUCH ? 'DASH' : 'SPACE', label(7, CSS.muted)).setOrigin(0, 0.5);
-    this.hud.add([this.hpText, this.dashLabel]);
+    const hudScale = compact ? Math.min(0.85, Math.max(0.65, width / 520)) : 1;
+    this.hud.add([this.hpText, this.dashLabel]).setScale(hudScale);
     this.hearts = [];
     this.displayHp = this.hp;
     this.hudKey = '';
 
-    // Top-centre: the big countdown.
-    const timerPanel = this.add.graphics({ x: width / 2, y: 42 }).setDepth(DEPTH.hud);
-    drawSticker(timerPanel, 150, 60, { radius: 14 });
-    this.timerText = this.add.text(width / 2, 44, '', label(26)).setOrigin(0.5).setDepth(DEPTH.hud);
+    // The timer moves to a second row on portrait screens.
+    const timerY = width < 480 ? 124 : compact ? 108 : 42;
+    const timerPanel = this.add.graphics({ x: width / 2, y: timerY }).setDepth(DEPTH.hud);
+    drawSticker(timerPanel, compact ? 132 : 150, compact ? 48 : 60, { radius: 14 });
+    this.timerText = this.add.text(width / 2, timerY + 2, '', label(compact ? 20 : 26)).setOrigin(0.5).setDepth(DEPTH.hud);
 
-    // Top-right: floor badge.
+    // Top-right: floor badge, separated from the timer in portrait.
     const boss = !!this.floor.boss;
-    const badge = this.add.graphics({ x: width - 98, y: 40 }).setDepth(DEPTH.hud);
-    drawSticker(badge, 168, 50, { fill: boss ? PALETTE.coral : PALETTE.yellow, radius: 25 });
+    const badgeWidth = compact ? 146 : 168;
+    const badgeX = width - badgeWidth / 2 - 10;
+    const badgeY = width < 480 ? 68 : 40;
+    const badge = this.add.graphics({ x: badgeX, y: badgeY }).setDepth(DEPTH.hud);
+    drawSticker(badge, badgeWidth, compact ? 44 : 50, { fill: boss ? PALETTE.coral : PALETTE.yellow, radius: 25 });
     this.add
-      .text(width - 98, 41, boss ? 'BOSS!' : this.floor.label.toUpperCase(), label(14, boss ? CSS.white : CSS.navy))
+      .text(badgeX, badgeY + 1, boss ? 'BOSS!' : this.floor.label.toUpperCase(), label(compact ? 12 : 14, boss ? CSS.white : CSS.navy))
       .setOrigin(0.5)
       .setDepth(DEPTH.hud);
 
@@ -254,7 +266,7 @@ export class ArenaScene extends Phaser.Scene {
     const promptText = this.add.text(0, 1, IS_TOUCH ? 'TAP CATCH!' : 'PRESS C TO CATCH!', label(12)).setOrigin(0.5);
     const promptPanel = this.add.graphics();
     drawSticker(promptPanel, promptText.width + 36, 42, { fill: PALETTE.cyan, radius: 21, shadow: 5 });
-    this.catchPrompt = this.add.container(width / 2, height - 122, [promptPanel, promptText]).setDepth(DEPTH.hud).setVisible(false);
+    this.catchPrompt = this.add.container(width / 2, height - (compact ? 154 : 122), [promptPanel, promptText]).setDepth(DEPTH.hud).setVisible(false);
     this.tweens.add({ targets: this.catchPrompt, scale: 1.08, duration: 380, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
 
     this.squadSlots = this.add.container(0, 0).setDepth(DEPTH.hud);
@@ -279,12 +291,15 @@ export class ArenaScene extends Phaser.Scene {
   // Four portrait slots at the bottom: 1 = starter, 2-4 = caught squad. The lead is highlighted.
   refreshSquadSlots() {
     this.squadSlots.removeAll(true);
-    const size = 60;
-    const gap = 14;
+    const { width, height } = this.scale;
+    const compact = this.compact;
+    const size = compact ? Math.min(48, Math.max(36, (width - 160) / 4)) : 60;
+    const gap = compact ? 8 : 14;
     const total = 4 * size + 3 * gap;
-    const y = this.scale.height - 40;
+    const y = height - size / 2 - 24;
+    const startX = compact ? 12 : width / 2 - total / 2;
     for (let slot = 0; slot < 4; slot++) {
-      const x = this.scale.width / 2 - total / 2 + size / 2 + slot * (size + gap);
+      const x = startX + size / 2 + slot * (size + gap);
       const member = this.team[slot];
       const isLead = slot === session.lead;
       const g = this.add.graphics({ x, y });
@@ -312,9 +327,10 @@ export class ArenaScene extends Phaser.Scene {
   // A joystick that appears wherever your left thumb lands, plus DASH and CATCH buttons on the right.
   createTouchControls() {
     const { width, height } = this.scale;
-    const radius = 60;
+    const compact = this.compact;
+    const radius = compact ? 30 : 60;
     this.stickBase = this.add.circle(0, 0, radius, PALETTE.white, 0.3).setStrokeStyle(5, PALETTE.navy, 0.7).setDepth(DEPTH.hud).setVisible(false);
-    this.stickKnob = this.add.circle(0, 0, 28, PALETTE.white, 0.95).setStrokeStyle(5, PALETTE.navy).setDepth(DEPTH.hud).setVisible(false);
+    this.stickKnob = this.add.circle(0, 0, compact ? 16 : 28, PALETTE.white, 0.95).setStrokeStyle(5, PALETTE.navy).setDepth(DEPTH.hud).setVisible(false);
 
     this.input.on('pointerdown', (pointer, over) => {
       if (over.length || this.stick.id !== null || pointer.x > width * 0.62 || this.phase !== 'fight') return;
@@ -340,8 +356,13 @@ export class ArenaScene extends Phaser.Scene {
     this.input.on('pointerup', release);
     this.input.on('pointerupoutside', release);
 
-    this.touchButton(width - 172, height - 62, 42, PALETTE.cyan, 'DASH', () => this.dash());
-    this.catchButton = this.touchButton(width - 72, height - 104, 54, PALETTE.yellow, 'CATCH', () => this.throwBall());
+    if (compact) {
+      this.touchButton(width - 42, height - 126, 28, PALETTE.cyan, 'DASH', () => this.dash());
+      this.catchButton = this.touchButton(width - 42, height - 46, 30, PALETTE.yellow, 'CATCH', () => this.throwBall());
+    } else {
+      this.touchButton(width - 172, height - 62, 42, PALETTE.cyan, 'DASH', () => this.dash());
+      this.catchButton = this.touchButton(width - 72, height - 104, 54, PALETTE.yellow, 'CATCH', () => this.throwBall());
+    }
   }
 
   touchButton(x, y, r, colour, text, action) {
@@ -388,7 +409,7 @@ export class ArenaScene extends Phaser.Scene {
       this.updateHud(delta);
       this.shimmerCards(delta);
     }
-    if (this.player) this.sortAndShadow();
+    if (this.player && this.wilds?.children) this.sortAndShadow();
   }
 
   // Sprites lower on screen draw in front; shadows stay under feet.
@@ -429,7 +450,7 @@ export class ArenaScene extends Phaser.Scene {
       this.time.delayedCall(i * 40, () => {
         const ghost = this.add
           .image(this.player.x, this.player.y, 'trainer')
-          .setScale(3)
+          .setScale(this.spriteScales.player)
           .setFlipX(this.player.flipX)
           .setAlpha(0.5)
           .setTintFill(PALETTE.cyan)
@@ -505,10 +526,11 @@ export class ArenaScene extends Phaser.Scene {
 
     const edge = Phaser.Math.Between(0, 3);
     const pad = 40;
-    const x = edge === 0 ? ARENA.x + pad : edge === 1 ? ARENA.x + ARENA.w - pad : Phaser.Math.Between(ARENA.x + pad, ARENA.x + ARENA.w - pad);
-    const y = edge === 2 ? ARENA.y + pad : edge === 3 ? ARENA.y + ARENA.h - pad : Phaser.Math.Between(ARENA.y + pad, ARENA.y + ARENA.h - pad);
+    const arena = this.arena;
+    const x = edge === 0 ? arena.x + pad : edge === 1 ? arena.x + arena.w - pad : Phaser.Math.Between(arena.x + pad, arena.x + arena.w - pad);
+    const y = edge === 2 ? arena.y + pad : edge === 3 ? arena.y + arena.h - pad : Phaser.Math.Between(arena.y + pad, arena.y + arena.h - pad);
 
-    const scale = isBoss ? BOSS_SCALE : WILD_SCALE;
+    const scale = isBoss ? this.spriteScales.boss : this.spriteScales.wild;
     const wild = this.wilds.create(x, y, this.spriteKeys.get(id)).setScale(scale);
     // Sprite is already trimmed to the visible Pokémon; shrink the box a little so touches feel fair.
     wild.body.setSize(wild.width * 0.75, wild.height * 0.75, true);
@@ -520,7 +542,7 @@ export class ArenaScene extends Phaser.Scene {
     wild.isBoss = isBoss;
     wild.baseScale = scale;
     wild.thrown = false;
-    this.addShadow(wild, isBoss ? 6 : 3);
+    this.addShadow(wild, this.compact ? (isBoss ? 4 : 2) : isBoss ? 6 : 3);
 
     // Pop in with a little puff.
     wild.setScale(0);
@@ -812,7 +834,7 @@ export class ArenaScene extends Phaser.Scene {
     session.squad.push(mon);
     const member = this.makeMember(mon, x, y);
     member.img.setScale(0);
-    this.tweens.add({ targets: member.img, scale: TEAM_SCALE, duration: 300, ease: 'Back.Out' });
+    this.tweens.add({ targets: member.img, scale: this.spriteScales.team, duration: 300, ease: 'Back.Out' });
     member.nextAttackAt = this.elapsed + BALANCE.team.memberAttackEveryMs;
     this.team.push(member);
     this.refreshSquadSlots();
@@ -879,7 +901,8 @@ export class ArenaScene extends Phaser.Scene {
   updateHud(delta) {
     // The bar is longer when max HP is boosted, and drains smoothly toward the real value.
     this.displayHp += (this.hp - this.displayHp) * Math.min(1, delta / 140);
-    const barW = Math.round((HP_BAR_BASE * this.maxHp) / this.baseMaxHp);
+    const maxBarWidth = this.compact ? Math.max(96, this.scale.width * 0.42) : Infinity;
+    const barW = Math.round(Math.min(maxBarWidth, (HP_BAR_BASE * this.maxHp) / this.baseMaxHp));
     const key = `${barW}:${this.lives}`;
     if (key !== this.hudKey) {
       this.hudKey = key;
@@ -918,13 +941,20 @@ export class ArenaScene extends Phaser.Scene {
   showStatCard(mon) {
     const W = 300;
     const H = 196;
+    const compact = this.compact;
+    if (compact && this.statCards.length) {
+      if (!this.pendingStatCards.some((pending) => pending.id === mon.id)) this.pendingStatCards.push(mon);
+      return;
+    }
     let slot = 0;
-    while (this.statCards.some((c) => c.slot === slot)) slot++;
+    if (!compact) while (this.statCards.some((c) => c.slot === slot)) slot++;
 
-    const restX = this.scale.width - 18 - W;
-    const y = 82 + slot * (H + 12);
+    const cardScale = compact ? Math.min(0.72, Math.max(0.6, (this.scale.height - 300) / 600)) : 1;
+    const cardWidth = W * cardScale;
+    const restX = compact ? this.scale.width - cardWidth - 12 : this.scale.width - 18 - W;
+    const y = compact ? this.arena.y + 4 : 82 + slot * (H + 12);
     const game = toGameStats(mon);
-    const card = this.add.container(this.scale.width + 20, y).setDepth(DEPTH.card);
+    const card = this.add.container(this.scale.width + 20, y).setScale(cardScale).setDepth(DEPTH.card);
 
     const frame = this.add.graphics();
     drawSticker(frame, W, H, { fill: PALETTE.yellow, radius: 14, ox: W / 2, oy: H / 2 });
@@ -977,6 +1007,9 @@ export class ArenaScene extends Phaser.Scene {
         onComplete: () => {
           card.destroy();
           this.statCards = this.statCards.filter((c) => c !== entry);
+          if (compact && this.pendingStatCards.length && this.phase === 'fight') {
+            this.showStatCard(this.pendingStatCards.shift());
+          }
         },
       });
     };
@@ -1020,11 +1053,11 @@ export class ArenaScene extends Phaser.Scene {
     });
 
     sfx.open();
-    const banner = this.add.text(480, 300, 'FLOOR CLEARED!', heading(40)).setOrigin(0.5).setDepth(DEPTH.overlay).setScale(0);
+    const banner = this.add.text(this.scale.width / 2, this.scale.height / 2 - 20, 'FLOOR CLEARED!', heading(40)).setOrigin(0.5).setDepth(DEPTH.overlay).setScale(0);
     this.tweens.add({ targets: banner, scale: 1, duration: 420, ease: 'Back.Out' });
-    this.tweens.add({ targets: banner, y: 290, duration: 600, yoyo: true, repeat: -1, delay: 420, ease: 'Sine.InOut' });
-    confetti(this, 80, 660, 70, DEPTH.overlay);
-    confetti(this, 880, 660, 70, DEPTH.overlay);
+    this.tweens.add({ targets: banner, y: banner.y - 10, duration: 600, yoyo: true, repeat: -1, delay: 420, ease: 'Sine.InOut' });
+    confetti(this, 80, this.scale.height + 20, 70, DEPTH.overlay);
+    confetti(this, this.scale.width - 80, this.scale.height + 20, 70, DEPTH.overlay);
 
     this.time.delayedCall(2400, () => {
       goTo(this, 'ResultsScene', {

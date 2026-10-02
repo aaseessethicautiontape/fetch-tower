@@ -22,20 +22,38 @@ export class TitleScene extends Phaser.Scene {
     super('TitleScene');
   }
 
+  init(data) {
+    this.startingNickname = data?.nickname;
+    this.startingStarter = data?.starter;
+  }
+
   create() {
     makeArt(this);
     const { width, height } = this.scale;
     const cx = width / 2;
-    this.selected = state.starter;
+    const compact = width < 800 || height < 560;
+    const stackedCards = width < 520;
+    const titleY = height * 0.1125;
+    const badgeY = height * 0.21875;
+    const nicknameY = stackedCards ? height * 0.30 : compact ? height * 0.36 : height * 0.409;
+    const playY = Math.min(height - 48, height * 0.925);
+    const layoutY = (designY) => (designY * height) / 640;
+    this.layoutY = layoutY;
+    this.selected = this.startingStarter ?? state.starter;
     this.cards = new Map();
+    this.handleResize = () => {
+      this.scene.restart({ nickname: this.nicknameInput?.value ?? state.nickname, starter: this.selected });
+    };
+    this.scale.on('resize', this.handleResize);
+    this.events.once('shutdown', () => this.scale.off('resize', this.handleResize));
 
     // Sky, clouds and birds behind everything.
     addSky(this);
-    addClouds(this, { count: 7, maxY: 320 });
-    addBirds(this, { count: 3, minY: 60, maxY: 190 });
+    addClouds(this, { count: 7, maxY: layoutY(320) });
+    addBirds(this, { count: 3, minY: layoutY(60), maxY: layoutY(190) });
 
     // The tower, flags waving on top.
-    const towerTop = 206;
+    const towerTop = layoutY(206);
     this.add.image(cx, towerTop, 'tower').setOrigin(0.5, 0).setScale(3).setDepth(-60);
     [[-66, 'coral', 0], [0, 'yellow', 0], [66, 'cyan', 0]].forEach(([dx, colour, lift]) => {
       const poleBottom = towerTop + 6 - lift;
@@ -54,21 +72,48 @@ export class TitleScene extends Phaser.Scene {
     addFlowers(this, spots, { depth: -40 });
 
     // Big bouncing title.
-    const title = this.add.text(cx, 72, 'FETCH TOWER', heading(54)).setOrigin(0.5).setDepth(10);
-    this.tweens.add({ targets: title, y: 62, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
-    const badge = this.add.graphics({ x: cx, y: 140 }).setDepth(10);
+    const titleSize = compact ? 34 : 54;
+    const title = this.add.text(cx, titleY, 'FETCH TOWER', heading(titleSize)).setOrigin(0.5).setDepth(10);
+    this.tweens.add({ targets: title, y: titleY - (compact ? 6 : 10), duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+    const badge = this.add.graphics({ x: cx, y: badgeY }).setDepth(10);
     drawSticker(badge, 236, 34, { fill: PALETTE.coral, radius: 17, shadow: 4, stroke: 3 });
-    this.add.text(cx, 141, 'WEEK 2 · CATCH & CLIMB', body(18, CSS.white)).setOrigin(0.5).setDepth(10);
+    this.add.text(cx, badgeY + 1, 'WEEK 2 · CATCH & CLIMB', body(18, CSS.white)).setOrigin(0.5).setDepth(10);
 
-    this.createNicknameSign(cx, 262);
+    this.createNicknameSign(cx, nicknameY, Math.min(400, width - 32));
 
-    const rowWidth = STARTERS.length * CARD_W + (STARTERS.length - 1) * CARD_GAP;
-    STARTERS.forEach((starter, i) => {
-      const x = cx - rowWidth / 2 + CARD_W / 2 + i * (CARD_W + CARD_GAP);
-      this.cards.set(starter.id, this.createCard(x, CARD_Y, starter, i));
-    });
+    const playWidth = Math.min(320, width - 32);
+    const button = { width: playWidth, height: 64, size: compact ? 16 : 20 };
+    if (stackedCards) {
+      const cardScale = Math.min(
+        0.82,
+        (width - 40) / (CARD_W * 2 + CARD_GAP),
+        (playY - 44 - Math.max(nicknameY + 135, height * 0.48) - 18) / (CARD_H * 1.5),
+      );
+      const columnGap = 14;
+      const rowGap = 18;
+      const columnStep = CARD_W * cardScale + columnGap;
+      const rowStep = CARD_H * cardScale + rowGap;
+      const firstY = Math.max(nicknameY + 135, height * 0.48);
+      STARTERS.forEach((starter, i) => {
+        const column = i % 2;
+        const row = Math.floor(i / 2);
+        const x = cx + (column ? 1 : -1) * columnStep / 2;
+        this.cards.set(starter.id, this.createCard(x, firstY + row * rowStep, starter, i, cardScale));
+      });
+    } else {
+      const rowWidth = STARTERS.length * CARD_W + (STARTERS.length - 1) * CARD_GAP;
+      const rowTop = nicknameY + 50;
+      const rowBottom = playY - 38;
+      const cardScale = Math.min(1, (width - 40) / rowWidth, (rowBottom - rowTop) / CARD_H);
+      const cardY = (rowTop + rowBottom) / 2;
+      const step = CARD_W * cardScale + CARD_GAP;
+      STARTERS.forEach((starter, i) => {
+        const x = cx - (STARTERS.length - 1) * step / 2 + i * step;
+        this.cards.set(starter.id, this.createCard(x, cardY, starter, i, cardScale));
+      });
+    }
 
-    this.playButton = makeButton(this, cx, 592, 'PLAY!', () => this.play(), { width: 320, height: 64, size: 20 });
+    this.playButton = makeButton(this, cx, playY, 'PLAY!', () => this.play(), button);
 
     // Sparkles keep popping around the selected card.
     this.time.addEvent({
@@ -92,13 +137,14 @@ export class TitleScene extends Phaser.Scene {
   }
 
   // A wooden sign with the nickname typed straight onto it.
-  createNicknameSign(x, y) {
-    woodSign(this, x, y, 400, 62, { posts: 44 }).setDepth(5);
+  createNicknameSign(x, y, width) {
+    woodSign(this, x, y, width, 62, { posts: 44 }).setDepth(5);
     this.signGlow = this.add.graphics({ x, y }).setDepth(4);
-    this.signGlow.lineStyle(6, PALETTE.cyan, 1).strokeRect(-205, -36, 410, 72).setAlpha(0);
-    const tag = this.add.graphics({ x: x - 150, y: y - 38 }).setDepth(6);
+    this.signGlow.lineStyle(6, PALETTE.cyan, 1).strokeRect(-width / 2 - 5, -36, width + 10, 72).setAlpha(0);
+    const tagX = x - Math.min(150, width * 0.36);
+    const tag = this.add.graphics({ x: tagX, y: y - 38 }).setDepth(6);
     drawSticker(tag, 116, 26, { fill: PALETTE.yellow, radius: 13, shadow: 3, stroke: 3 });
-    this.add.text(x - 150, y - 37, 'YOUR NAME', label(9)).setOrigin(0.5).setDepth(6);
+    this.add.text(tagX, y - 37, 'YOUR NAME', label(9)).setOrigin(0.5).setDepth(6);
 
     const input = document.createElement('input');
     input.type = 'text';
@@ -107,7 +153,7 @@ export class TitleScene extends Phaser.Scene {
     input.placeholder = 'Type it here';
     input.autocomplete = 'off';
     input.spellcheck = false;
-    input.value = state.nickname;
+    input.value = this.startingNickname ?? state.nickname;
     input.addEventListener('input', () => this.refresh());
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.play();
@@ -119,7 +165,7 @@ export class TitleScene extends Phaser.Scene {
     this.nicknameInput = input;
   }
 
-  createCard(x, y, starter, index) {
+  createCard(x, y, starter, index, scale = 1) {
     const type = STARTER_TYPES[starter.id];
     const strip = TYPE_COLORS[type];
 
@@ -139,9 +185,9 @@ export class TitleScene extends Phaser.Scene {
     this.tweens.add({ targets: loading, angle: 360, duration: 800, repeat: -1 });
     const name = this.add.text(0, CARD_H / 2 - 24, starter.name.toUpperCase(), label(12)).setOrigin(0.5);
 
-    const container = this.add.container(x, y, [glow, panel, typeText, number, loading, name]).setDepth(20);
+    const container = this.add.container(x, y, [glow, panel, typeText, number, loading, name]).setScale(scale).setDepth(20);
     container.setSize(CARD_W, CARD_H).setInteractive({ useHandCursor: true });
-    const card = { container, glow, loading, name, id: starter.id, baseY: y, tilt: index % 2 ? 3 : -3 };
+    const card = { container, glow, loading, name, id: starter.id, baseY: y, baseScale: scale, tilt: index % 2 ? 3 : -3 };
 
     container.on('pointerover', () => {
       if (this.selected === starter.id) return;
@@ -181,7 +227,7 @@ export class TitleScene extends Phaser.Scene {
   }
 
   showError(message) {
-    const t = this.add.text(this.scale.width / 2, 196, message, body(18, CSS.white, { backgroundColor: CSS.coral, padding: { x: 12, y: 6 } }));
+    const t = this.add.text(this.scale.width / 2, this.layoutY(196), message, body(18, CSS.white, { backgroundColor: CSS.coral, padding: { x: 12, y: 6 } }));
     t.setOrigin(0.5).setDepth(50);
   }
 
@@ -193,7 +239,7 @@ export class TitleScene extends Phaser.Scene {
         targets: c.container,
         y: isSelected ? c.baseY - 18 : c.baseY,
         angle: isSelected ? c.tilt : 0,
-        scale: isSelected ? 1.04 : 1,
+        scale: c.baseScale * (isSelected ? 1.04 : 1),
         duration: 260,
         ease: 'Back.Out',
       });
@@ -216,7 +262,6 @@ export class TitleScene extends Phaser.Scene {
     if (IS_TOUCH && !this.scale.isFullscreen) {
       try {
         this.scale.startFullscreen();
-        screen.orientation?.lock?.('landscape').catch(() => {});
       } catch {
         // not supported: the game still fits the screen
       }

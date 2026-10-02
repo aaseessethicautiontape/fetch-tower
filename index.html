@@ -38,47 +38,10 @@
         touch-action: none;
       }
 
-      /* Phones held upright: ask to turn sideways (the game is a landscape 960x640 screen). */
-      #rotate {
-        display: none;
-        position: fixed;
-        inset: 0;
-        z-index: 10;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 28px;
-        padding: 24px;
-        background: linear-gradient(#5ec8ff, #b8ecff);
-        font-family: 'Press Start 2P', monospace;
-        font-size: 13px;
-        line-height: 2;
-        color: #ffd23f;
-        text-align: center;
-        text-shadow: 3px 3px 0 #1b2a4a, -2px -2px 0 #1b2a4a, 2px -2px 0 #1b2a4a, -2px 2px 0 #1b2a4a;
-      }
-      #rotate .phone {
-        width: 54px;
-        height: 92px;
-        border: 6px solid #1b2a4a;
-        border-radius: 10px;
-        background: #ffffff;
-        box-shadow: 6px 6px 0 #1b2a4a;
-        animation: turn 2.2s ease-in-out infinite;
-      }
-      @keyframes turn {
-        0%, 25% { transform: rotate(0deg); }
-        55%, 100% { transform: rotate(-90deg); }
-      }
-      @media (orientation: portrait) {
-        body.touch #rotate {
-          display: flex;
-        }
-      }
-
       /* Nickname box: transparent, sits on top of a wooden sign drawn in the canvas. */
       .ft-sign-input {
-        width: 330px;
+        width: min(330px, calc(100vw - 96px));
+        box-sizing: border-box;
         padding: 6px 8px;
         font-family: 'Jersey 10', sans-serif;
         font-size: 38px;
@@ -95,7 +58,7 @@
 
       /* Door answer box: a white sticker. */
       .ft-answer {
-        width: 380px;
+        width: min(380px, calc(100vw - 32px));
         box-sizing: border-box;
         padding: 6px 14px;
         font-family: 'Jersey 10', sans-serif;
@@ -113,11 +76,14 @@
       .ft-answer::placeholder {
         color: rgba(27, 42, 74, 0.4);
       }
+      @media (max-width: 480px) {
+        .ft-sign-input { font-size: 30px; }
+        .ft-answer { font-size: 26px; }
+      }
     </style>
   </head>
   <body>
     <div id="game"></div>
-    <div id="rotate"><div class="phone"></div><p style="margin: 0; max-width: 300px">Turn your phone sideways to play!</p></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
