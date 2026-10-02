@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fetch Tower</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #0d0d16;
+        overflow: hidden;
+      }
+      #game {
+        width: 100%;
+        height: 100%;
+      }
+      canvas {
+        image-rendering: pixelated;
+      }
+      .ft-input {
+        width: 360px;
+        box-sizing: border-box;
+        padding: 12px 14px;
+        font-family: 'Press Start 2P', monospace;
+        font-size: 16px;
+        color: #f2f2f7;
+        background: #20202e;
+        border: 3px solid #3a3a52;
+        border-radius: 0;
+        outline: none;
+        text-align: center;
+      }
+      .ft-input:focus {
+        border-color: #ffcb05;
+      }
+      .ft-input::placeholder {
+        color: #6c6c88;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
