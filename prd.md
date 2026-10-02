@@ -8,7 +8,7 @@ A Pokémon tower climb. Each floor is a real fight: you move around, wild Pokém
 
 Between floors there is a locked door. The only way to open a door is to do a real step from the Week 2 lesson (fetch data, read JSON, check your tools, push your repo). The doors are checked by the server, so they can't be cheated from the browser.
 
-Each door has hints that unlock over time. Students get a few minutes to figure it out on their own first. If they're still stuck, the hints get more and more specific until the last hint basically walks them through it. Even the last hint never gives the answer itself, they still have to do the step.
+Each door has hints that unlock over time. Students get 30 seconds to try it on their own first, then a new hint every 30 seconds. If they're still stuck, the hints get more and more specific until the last hint basically walks them through it. Even the last hint never gives the answer itself, they still have to do the step.
 
 ## 2. Who it's for
 
@@ -30,16 +30,16 @@ Lab 3 students, ages 12 to 14, on Windows laptops, who just finished Week 2. The
 5. Door asks a lesson question. Answer it right and the next floor opens.
 6. Repeat to the top. The boss floor clears Week 2.
 
-If your HP hits 0, you retry the same floor. You never lose a door you already opened.
+If your HP hits 0, you retry the same floor, unless you have an extra life (see section 5). You never lose a door you already opened.
 
 ## 5. The arena (each floor)
 
 - **Movement:** WASD or arrow keys. Player stays inside the arena.
-- **Your starter:** follows the player and auto-attacks the nearest wild Pokémon every 0.8 seconds.
+- **Your starter:** follows the player and auto-attacks the nearest wild Pokémon. It is your lead by default (see Squad).
 - **Wild Pokémon:** spawn from the edges in small waves and walk toward the player. Their speed, HP and damage come from their real PokéAPI stats.
 - **Contact damage:** a wild Pokémon touching the player deals its damage, with a 0.5 second invincibility window after each hit.
 - **Floor timer:** shown at the top. When it hits 0, remaining wild Pokémon run away and the floor is cleared.
-- **Catching:** when a wild Pokémon is below 20% HP it gets a pulsing ring. Press C to throw a ball. One throw per Pokémon, a miss uses it up. Catch chance is 60%. Caught Pokémon go into the Pokédex screen. Catches add to score.
+- **Catching:** when a wild Pokémon is below 20% HP it gets a pulsing ring. Press C to throw a ball. One throw per Pokémon, a miss uses it up. Catch chance is 60%. Caught Pokémon go into the Pokédex screen and join your squad. Catches add to score.
 - **Stat card:** the first time a new Pokémon species appears on a floor, a small card slides in for 3 seconds showing its raw PokéAPI stats on the left and the game numbers on the right. This repeats the "JSON to game numbers" idea from class without a lecture.
 
 ### Stat mapping (same idea as the lesson)
@@ -51,6 +51,28 @@ If your HP hits 0, you retry the same floor. You never lose a door you already o
 | speed | Move speed (px/s) | 40 + speed × 1.2 | min 70, max 200 |
 
 The player's starter uses the same formulas for its HP, damage and speed.
+
+The stat card always shows these exact numbers. To keep the game fair and fun, extra multipliers sit on top of them (player HP, lead damage, attack speeds, wild HP, contact damage, miss chance). They all live in `src/data/balance.js` so they can be tuned without touching the formulas.
+
+### Squad
+
+- When you catch a Pokémon, it joins your squad and follows behind you in a little line.
+- The squad holds up to 3 caught Pokémon plus your starter. If it's full, the new catch replaces the oldest one.
+- Every squad member auto-attacks the nearest wild Pokémon with its own type-coloured projectile, using its own mapped damage.
+- One member is the **lead**: it walks closest to you and attacks fastest and hardest. Squad members attack more slowly (every 0.8 seconds), so the lead stays the main attacker. Your starter is the lead until you swap.
+- Press 1, 2, 3 or 4 to choose the lead. The squad is shown as 4 small portrait slots at the bottom of the screen with the number key on each, and the lead is highlighted.
+- The squad carries over between floors for the rest of the session and resets when you close the game. Caught Pokémon still go to the Pokédex permanently.
+
+### Catch rewards
+
+- Each catch raises your max HP by 10% of your base max HP (capped) and heals you for 25% of your max HP.
+- The HP bar grows a little longer with a short glow, and "+MAX HP" pops up over the player.
+
+### Extra lives
+
+- Every 3 catches on a floor gives you an extra life, shown as small hearts next to the HP bar (max 3).
+- If you faint with an extra life, you come back right away with half HP and 2 seconds of invincibility instead of the "You fainted" screen.
+- Extra lives reset at the start of each floor.
 
 ### Starters
 
@@ -140,9 +162,9 @@ Each door starts a hint timer the first time the student reaches it. The timer k
 | Time at the door | What appears |
 |---|---|
 | 0:00 | "Try it yourself first. Hints unlock as time passes." Hint slots show as locked with a countdown. |
-| 2:00 | Hint 1: a nudge in the right direction |
-| 4:00 | Hint 2: where to look and what to do |
-| 6:00 | Hint 3: step by step walkthrough, without the final answer |
+| 0:30 | Hint 1: a nudge in the right direction |
+| 1:00 | Hint 2: where to look and what to do |
+| 1:30 | Hint 3: step by step walkthrough, without the final answer |
 
 Three wrong answers in a row also unlock the next hint early, so a student who's really trying isn't stuck waiting.
 
@@ -236,24 +258,36 @@ All reads and writes go through Vercel functions using the Firebase Admin SDK wi
 
 Door 5 calls GitHub inside `/api/door`.
 
+## 13b. Phones and tablets
+
+- The game is a landscape screen. Held upright, a phone shows "Turn your phone sideways to play!".
+- Arena: a joystick appears wherever your left thumb touches; DASH and CATCH buttons sit bottom right. Tap a squad portrait to make it the lead.
+- Tower map: drag up and down to look around. Taps open floors and doors; drags never do.
+- On Android, pressing Play goes fullscreen and holds landscape. iPhones play in the browser window.
+
 ## 14. Out of scope (v1)
 
 1. Logins or passwords. Nickname only.
 2. Multiplayer in the same arena.
 3. Evolution, items, or level-up cards.
-4. Sound and music.
-5. Mobile and touch controls.
-6. Week 3 to Week 6 floors (map shows them locked).
+4. Music. (Small sound effects are in: catch clicks, dings, door chimes.)
+5. Week 3 to Week 6 floors (map shows them locked).
 
 ## 15. Done when
 
 - [ ] A new player can pick a nickname and starter and reach Floor 1
 - [ ] Every floor loads its Pokémon from PokéAPI and uses the stat formulas and caps
 - [ ] Catching works with C, one throw per Pokémon
+- [ ] Caught Pokémon join the squad (max 3 plus the starter, oldest replaced), follow in a line, and attack on their own
+- [ ] Keys 1 to 4 swap the lead, shown in the 4 portrait slots
+- [ ] The squad carries over between floors and resets when the game is closed
+- [ ] Each catch raises max HP by 10% and heals 25%, with "+MAX HP" and a growing HP bar
+- [ ] Every 3 catches on a floor gives an extra life (max 3) that revives you at half HP with 2 seconds of invincibility
 - [ ] All 5 doors open only with the right answer, checked on the server
 - [ ] Wrong answers show the right message
-- [ ] Hints unlock at 2, 4 and 6 minutes, and early after 3 wrong answers
+- [ ] Hints unlock at 30, 60 and 90 seconds, and early after 3 wrong answers
 - [ ] `tower.forceOpen()` prints the 403 message in the Console
 - [ ] Door 5 checks a real GitHub repo for PRD.md
 - [ ] Leaderboard shows all players
 - [ ] Deployed on Vercel and works on a Windows laptop in Chrome
+- [ ] Playable on a phone in landscape with the on-screen joystick and buttons

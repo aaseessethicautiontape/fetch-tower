@@ -1,0 +1,7 @@
+# Never upload secrets. Vercel gets them as environment variables instead.
+.env.local
+.env*.local
+*adminsdk*.json
+firebase-debug.log
+dist
+node_modules

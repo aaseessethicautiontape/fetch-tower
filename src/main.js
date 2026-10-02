@@ -1,25 +1,30 @@
 import Phaser from 'phaser';
+import { forceOpen } from './api.js';
+import { IS_TOUCH } from './ui.js';
 import { TitleScene } from './scenes/TitleScene.js';
 import { TowerScene } from './scenes/TowerScene.js';
 import { ArenaScene } from './scenes/ArenaScene.js';
 import { DoorScene } from './scenes/DoorScene.js';
 import { ResultsScene } from './scenes/ResultsScene.js';
 import { LeaderboardScene } from './scenes/LeaderboardScene.js';
-import { COLORS } from './ui.js';
 
 const config = {
   type: Phaser.AUTO,
   parent: 'game',
   width: 960,
   height: 640,
-  backgroundColor: COLORS.bg,
+  backgroundColor: '#5ec8ff',
   pixelArt: true,
   scale: {
-    mode: Phaser.Scale.FIT,
+    // Keep the full game visible while expanding its view to use wide phone screens.
+    mode: Phaser.Scale.EXPAND,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
   dom: {
     createContainer: true,
+  },
+  input: {
+    activePointers: 3, // joystick thumb + a button at the same time
   },
   physics: {
     default: 'arcade',
@@ -28,8 +33,15 @@ const config = {
   scene: [TitleScene, TowerScene, ArenaScene, DoorScene, ResultsScene, LeaderboardScene],
 };
 
-// Wait for the pixel font so canvas text doesn't render in a fallback font.
-document.fonts
-  .load('16px "Press Start 2P"')
+if (IS_TOUCH) document.body.classList.add('touch');
+
+// The fake door on Floor 3 tells students to try this in the Console (PRD section 7).
+window.tower = { forceOpen };
+
+// Wait for both fonts so canvas text doesn't render in a fallback font.
+Promise.all([
+  document.fonts.load('16px "Press Start 2P"'),
+  document.fonts.load('16px "Jersey 10"'),
+])
   .catch(() => {})
   .then(() => new Phaser.Game(config));

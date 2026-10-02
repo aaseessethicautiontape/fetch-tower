@@ -23,11 +23,24 @@ function load() {
     nickname: saved.nickname ?? '',
     starter: saved.starter ?? null,
     hintTimers: saved.hintTimers ?? {}, // door number -> timestamp (ms) first reached
+    hintsEarly: saved.hintsEarly ?? {}, // door number -> hints unlocked early by 3 wrong answers in a row
     pokedex: saved.pokedex ?? [], // caught Pokémon: { id, name, sprite, hp, attack, speed }
   };
 }
 
 export const state = load();
+
+// Lives only as long as the page is open (PRD: squad resets when you close the game).
+export const session = {
+  squad: [], // caught Pokémon following you, oldest first
+  lead: 0, // 0 = starter, 1-3 = squad slot
+  boostCatches: 0, // catches this session, for the max HP boost
+  clearedFloors: new Set(), // floors survived this session (their door can be tried)
+  // Mirrors the server's record (PRD section 10). Never decided by the browser.
+  online: false,
+  doorsOpened: [],
+  highestFloor: 1,
+};
 
 export function save() {
   try {
